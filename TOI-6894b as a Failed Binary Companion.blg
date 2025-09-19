@@ -1,0 +1,46 @@
+This is BibTeX, Version 0.99d (TeX Live 2024)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: TOI-6894b as a Failed Binary Companion.aux
+The style file: plainnat.bst
+Database file #1: toi6894.bib
+You've used 25 entries,
+            2773 wiz_defined-function locations,
+            762 strings with 9568 characters,
+and the built_in function-call counts, 11639 in all, are:
+= -- 1062
+> -- 639
+< -- 18
++ -- 220
+- -- 195
+* -- 984
+:= -- 1843
+add.period$ -- 99
+call.type$ -- 25
+change.case$ -- 139
+chr.to.int$ -- 25
+cite$ -- 50
+duplicate$ -- 517
+empty$ -- 945
+format.name$ -- 233
+if$ -- 2412
+int.to.chr$ -- 1
+int.to.str$ -- 1
+missing$ -- 25
+newline$ -- 157
+num.names$ -- 100
+pop$ -- 217
+preamble$ -- 1
+purify$ -- 114
+quote$ -- 0
+skip$ -- 391
+stack$ -- 0
+substring$ -- 426
+swap$ -- 34
+text.length$ -- 1
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 275
+warning$ -- 0
+while$ -- 110
+width$ -- 0
+write$ -- 380
