@@ -1,20 +1,23 @@
 #!/bin/bash
 
-PROJECT_DIR="${1:-.}"
-REPORT_DIR="$PROJECT_DIR/static_reports"
-PYLINT_RC="$PROJECT_DIR/.pylintrc"
+INPUT_PATH="${1:-.}"
 
+if [ -d "$INPUT_PATH" ]; then
+  PROJECT_DIR="$INPUT_PATH"
+  REPORT_DIR="$PROJECT_DIR/static_reports"
+  PY_FILES=$(find "$PROJECT_DIR" -type f -name "*.py")
+else
+  PY_FILES="$INPUT_PATH"
+  PROJECT_DIR=$(pwd)
+  REPORT_DIR="$PROJECT_DIR/static_reports"
+fi
+
+PYLINT_RC="$PROJECT_DIR/.pylintrc"
 mkdir -p "$REPORT_DIR"
 
 echo
 echo "=== Running Per-File Static Analysis ==="
 echo
-
-# Activate your virtualenv (adjust path if needed)
-source "$PROJECT_DIR/venv/bin/activate"
-
-# Find all Python files recursively
-PY_FILES=$(find "$PROJECT_DIR" -type f -name "*.py")
 
 # Loop over each file
 for file in $PY_FILES; do
