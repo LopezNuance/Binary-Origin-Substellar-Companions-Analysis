@@ -1,0 +1,6 @@
+[MESSAGES CONTROL]
+disable=all
+enable=unused-import,undefined-variable,import-error,no-member,unreachable
+
+[REPORTS]
+output-format=json
