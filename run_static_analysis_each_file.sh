@@ -1,0 +1,42 @@
+#!/bin/bash
+
+PROJECT_DIR="${1:-.}"
+REPORT_DIR="$PROJECT_DIR/static_reports"
+PYLINT_RC="$PROJECT_DIR/.pylintrc"
+
+mkdir -p "$REPORT_DIR"
+
+echo
+echo "=== Running Per-File Static Analysis ==="
+echo
+
+# Activate your virtualenv (adjust path if needed)
+source "$PROJECT_DIR/venv/bin/activate"
+
+# Find all Python files recursively
+PY_FILES=$(find "$PROJECT_DIR" -type f -name "*.py")
+
+# Loop over each file
+for file in $PY_FILES; do
+    relname=$(realpath --relative-to="$PROJECT_DIR" "$file")
+    base=$(basename "$file" .py)
+    escaped=$(echo "$relname" | tr '/' '_' | tr '.' '_')
+
+    echo
+    echo "-> Analyzing $relname"
+
+    pylint --rcfile="$PYLINT_RC" --output-format=json "$file" > "$REPORT_DIR/pylint_$escaped.json" 2>/dev/null
+    mypy "$file" > "$REPORT_DIR/mypy_$escaped.txt" 2>&1
+    bandit -f json -o "$REPORT_DIR/bandit_$escaped.json" "$file" > /dev/null
+    vulture "$file" > "$REPORT_DIR/vulture_$escaped.txt" 2>&1
+    dodgy "$file" > "$REPORT_DIR/dodgy_$escaped.txt" 2>&1
+done
+
+# Safety runs once for whole env (dependencies)
+echo
+echo "-> Running safety (once for full environment)"
+safety check --full-report > "$REPORT_DIR/safety.txt" 2>&1
+
+echo
+echo "✅ Per-file static analysis complete."
+echo "Reports written to: $REPORT_DIR"
