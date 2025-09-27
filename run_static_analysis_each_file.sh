@@ -19,7 +19,6 @@ PY_FILES=$(find "$PROJECT_DIR" -type f -name "*.py")
 # Loop over each file
 for file in $PY_FILES; do
     relname=$(realpath --relative-to="$PROJECT_DIR" "$file")
-    base=$(basename "$file" .py)
     escaped=$(echo "$relname" | tr '/' '_' | tr '.' '_')
 
     echo
