@@ -1,5 +1,3 @@
-import logging
-
 import numpy as np
 import pandas as pd
 from sklearn.mixture import GaussianMixture
@@ -29,7 +27,6 @@ except ImportError:
     NUMBA_AVAILABLE = False
 
 
-logger = logging.getLogger(__name__)
 
 class StatisticalAnalyzer:
     """Perform statistical analyses for VLMS companion study"""
@@ -363,14 +360,7 @@ def kozai_lidov_feasibility_single(M_star, M_comp, a_inner, e_inner,
     # Maximum eccentricity from KL (simplified)
     kl_argument = 1.0 - 5.0/3.0 * (1.0 - e_inner**2)
     if kl_argument <= 0:
-        logger.debug(
-            "KL feasibility rejected: non-positive argument (e_inner=%s, M_star=%s, M_perturber=%s, a_inner=%s, a_outer=%s)",
-            e_inner,
-            M_star,
-            M_perturber,
-            a_inner,
-            a_outer,
-        )
+        # KL feasibility rejected: non-positive argument
         return False
 
     e_max = np.sqrt(kl_argument)

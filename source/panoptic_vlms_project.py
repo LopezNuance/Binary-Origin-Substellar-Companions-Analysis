@@ -80,7 +80,7 @@ def process_data(nasa_data, bd_data, args):
         toi_mstar=args.toi_mstar,
         toi_mc_mj=args.toi_mc_mj,
         toi_a_au=args.toi_a_AU,
-        toi_ecc=getattr(args, 'toi_ecc', 0.0)
+        toi_ecc=0.0
     )
 
     # Save processed data
