@@ -80,7 +80,7 @@ def process_data(nasa_data, bd_data, args):
         toi_mstar=args.toi_mstar,
         toi_mc_mj=args.toi_mc_mj,
         toi_a_au=args.toi_a_AU,
-        toi_ecc=0.0
+        toi_ecc=args.toi_ecc
     )
 
     # Save processed data
@@ -329,6 +329,8 @@ Examples:
                        help='TOI-6894b companion mass (Jupiter masses, default: 0.3)')
     parser.add_argument('--toi_a_AU', type=float, default=0.05,
                        help='TOI-6894b semi-major axis (AU, default: 0.05)')
+    parser.add_argument('--toi_ecc', type=float, default=0.0,
+                       help='TOI-6894b eccentricity (default: 0.0)')
 
     # Output options
     parser.add_argument('--outdir', type=str, default='out',

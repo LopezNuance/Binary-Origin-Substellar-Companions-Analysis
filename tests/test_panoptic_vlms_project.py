@@ -36,7 +36,7 @@ def test_process_data_returns_dataset_with_toi_entry(tmp_path: Path):
         toi_mstar=0.08,
         toi_mc_mj=0.3,
         toi_a_AU=0.05,
-        toi_ecc=0.0,
+        toi_ecc=0.2,
         outdir=str(tmp_path),
     )
 
@@ -45,6 +45,7 @@ def test_process_data_returns_dataset_with_toi_entry(tmp_path: Path):
     assert "TOI" in final_df["data_source"].values
     toi_rows = final_df[final_df["data_source"] == "TOI"]
     assert np.isclose(toi_rows.iloc[0]["companion_mass_mjup"], 0.3)
+    assert np.isclose(toi_rows.iloc[0]["eccentricity"], 0.2)
 
 
 def test_create_visualizations_uses_visualizer(monkeypatch, tmp_path: Path):
@@ -105,4 +106,3 @@ def test_save_object_probabilities_writes_expected_file(tmp_path: Path):
     assert saved_probs[0] == pytest.approx(0.2)
     assert np.isnan(saved_probs[1])
     assert saved_probs[2] == pytest.approx(0.8)
-
