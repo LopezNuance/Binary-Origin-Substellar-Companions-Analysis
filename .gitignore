@@ -3,3 +3,4 @@ venv/
 .idea/
 .claude
 .venv
+static_reports
