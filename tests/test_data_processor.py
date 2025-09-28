@@ -44,7 +44,7 @@ def test_process_bd_data_maps_columns_and_converts_units():
     assert (processed["data_source"] == "BD_Catalogue").all()
 
 
-def test_combine_datasets_only_keeps_common_columns():
+def test_combine_datasets_preserves_union_of_columns():
     processor = make_processor()
 
     nasa = pd.DataFrame({
@@ -62,8 +62,16 @@ def test_combine_datasets_only_keeps_common_columns():
 
     combined = processor.combine_datasets(nasa, bd)
 
-    assert set(combined.columns) == {"host_mass_msun", "companion_mass_mearth", "semimajor_axis_au"}
+    assert {
+        "host_mass_msun",
+        "companion_mass_mearth",
+        "semimajor_axis_au",
+        "extra_nasa",
+        "extra_bd",
+    }.issubset(combined.columns)
     assert len(combined) == 2
+    assert pd.isna(combined.loc[0, "extra_bd"])
+    assert pd.isna(combined.loc[1, "extra_nasa"])
 
 
 def test_compute_derived_quantities_adds_expected_columns():
@@ -117,5 +125,3 @@ def test_add_toi6894b_appends_entry():
     toi_row = updated[updated["data_source"] == "TOI"].iloc[0]
     assert toi_row["companion_name"] == "TOI-6894b"
     assert np.isclose(toi_row["companion_mass_mjup"], 0.3)
-
-

@@ -147,19 +147,18 @@ class VLMSDataProcessor:
         nasa_clean = nasa_df.dropna(subset=required_cols).copy()
         bd_clean = bd_df.dropna(subset=required_cols).copy()
 
-        # Get common columns
-        common_cols = list(set(nasa_clean.columns) & set(bd_clean.columns))
+        # Combine while preserving the full union of feature columns so downstream
+        # analyses (e.g. metallicity, discovery method) remain available even when
+        # supplied by only one catalogue.
+        combined = pd.concat([nasa_clean, bd_clean], ignore_index=True, sort=False)
 
-        # Select only common columns from each dataset
-        nasa_subset = nasa_clean[common_cols].copy()
-        bd_subset = bd_clean[common_cols].copy()
-
-        # Combine
-        combined = pd.concat([nasa_subset, bd_subset], ignore_index=True)
+        # Move the core analysis columns to the front for readability
+        primary_cols = required_cols + [col for col in combined.columns if col not in required_cols]
+        combined = combined[primary_cols]
 
         print(f"Combined dataset: {len(combined)} total entries")
-        print(f"  NASA: {len(nasa_subset)} entries")
-        print(f"  Brown Dwarf: {len(bd_subset)} entries")
+        print(f"  NASA: {len(nasa_clean)} entries")
+        print(f"  Brown Dwarf: {len(bd_clean)} entries")
 
         return combined
 
