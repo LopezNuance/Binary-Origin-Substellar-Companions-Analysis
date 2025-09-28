@@ -10,9 +10,11 @@ Author: Based on specifications from improved-small-star-big-planet-paper-with-c
 """
 
 import argparse
+import logging
 import os
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -28,16 +30,73 @@ from data_processor import VLMSDataProcessor
 from visualization import VLMSVisualizer
 from statistical_analysis import StatisticalAnalyzer, KozaiLidovAnalyzer
 
+
+logger = logging.getLogger("panoptic_vlms_project")
+
+
+def _timestamped_filename(basename: str, timestamp: str) -> str:
+    """Insert timestamp before the file extension (defaults to .log if none provided)."""
+    path = Path(basename)
+    stem = path.stem or basename
+    suffix = path.suffix if path.suffix else ".log"
+    return f"{stem}_{timestamp}{suffix}"
+
+
+def setup_logging(args):
+    """Configure logging to stream to stdout and timestamped log/error files."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    log_dir = Path(args.logdir)
+    error_dir = Path(args.errordir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    error_dir.mkdir(parents=True, exist_ok=True)
+
+    log_path = log_dir / _timestamped_filename(args.log_basename, timestamp)
+    error_path = error_dir / _timestamped_filename(args.error_basename, timestamp)
+
+    # Ensure clean handler slate before configuring
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler(stream=sys.stdout)
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+
+    error_handler = logging.FileHandler(error_path)
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(formatter)
+    logger.addHandler(error_handler)
+
+    logging.captureWarnings(True)
+
+    args.run_timestamp = timestamp
+    args.log_file_path = str(log_path)
+    args.error_file_path = str(error_path)
+
+    logger.info(f"Logging initialized. Log file: {log_path}")
+    logger.info(f"Error log file: {error_path}")
+
 def setup_output_directory(output_dir: str):
     """Create output directory if it doesn't exist"""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-    print(f"Output directory: {output_dir}")
+    logger.info(f"Output directory: {output_dir}")
 
 def fetch_data(args):
     """Fetch data from online sources"""
-    print("=" * 60)
-    print("FETCHING DATA FROM ONLINE SOURCES")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("FETCHING DATA FROM ONLINE SOURCES")
+    logger.info("=" * 60)
 
     # NASA Exoplanet Archive
     nasa_fetcher = NASAExoplanetArchiveFetcher()
@@ -58,9 +117,9 @@ def fetch_data(args):
 
 def process_data(nasa_data, bd_data, args):
     """Process and combine datasets"""
-    print("\n" + "=" * 60)
-    print("PROCESSING AND COMBINING DATASETS")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("PROCESSING AND COMBINING DATASETS")
+    logger.info("=" * 60)
 
     processor = VLMSDataProcessor(min_stellar_mass=0.06, max_stellar_mass=0.20)
 
@@ -91,9 +150,9 @@ def process_data(nasa_data, bd_data, args):
 
 def create_visualizations(df, args):
     """Generate all figures"""
-    print("\n" + "=" * 60)
-    print("CREATING VISUALIZATIONS")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("CREATING VISUALIZATIONS")
+    logger.info("=" * 60)
 
     viz = VLMSVisualizer()
 
@@ -109,22 +168,22 @@ def create_visualizations(df, args):
 
 def perform_statistical_analysis(df, args):
     """Perform all statistical analyses"""
-    print("\n" + "=" * 60)
-    print("PERFORMING STATISTICAL ANALYSES")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("PERFORMING STATISTICAL ANALYSES")
+    logger.info("=" * 60)
 
     analyzer = StatisticalAnalyzer()
 
     # Gaussian Mixture Model analysis
-    print("\n1. Gaussian Mixture Model Analysis")
+    logger.info("\n1. Gaussian Mixture Model Analysis")
     gmm_results = analyzer.gaussian_mixture_analysis(df, max_components=4)
 
     # Beta distribution analysis
-    print("\n2. Beta Distribution Analysis")
+    logger.info("\n2. Beta Distribution Analysis")
     beta_results = analyzer.beta_distribution_analysis(df)
 
     # Origin classification
-    print("\n3. Origin Classification")
+    logger.info("\n3. Origin Classification")
     classification_results = analyzer.origin_classification(df)
 
     # Save statistical results
@@ -134,9 +193,9 @@ def perform_statistical_analysis(df, args):
 
 def create_feasibility_map(args):
     """Create Kozai-Lidov feasibility map"""
-    print("\n" + "=" * 60)
-    print("CREATING KOZAI-LIDOV FEASIBILITY MAP")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("CREATING KOZAI-LIDOV FEASIBILITY MAP")
+    logger.info("=" * 60)
 
     kl_analyzer = KozaiLidovAnalyzer(n_trials=2000)
     feasibility_results = kl_analyzer.create_feasibility_map(
@@ -164,9 +223,9 @@ def create_feasibility_map(args):
 
 def create_additional_plots(df, gmm_results, classification_results, args):
     """Create additional analysis plots"""
-    print("\n" + "=" * 60)
-    print("CREATING ADDITIONAL ANALYSIS PLOTS")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("CREATING ADDITIONAL ANALYSIS PLOTS")
+    logger.info("=" * 60)
 
     viz = VLMSVisualizer()
 
@@ -184,12 +243,12 @@ def create_additional_plots(df, gmm_results, classification_results, args):
         class_plot_path = os.path.join(args.outdir, "classification_results.png")
         viz.plot_classification_results(df, full_probs, class_plot_path)
     else:
-        print("Skipping classification plot due to insufficient data")
+        logger.warning("Skipping classification plot due to insufficient data")
 
 def save_object_probabilities(df, classification_results, args):
     """Save objects with their binary-like probabilities"""
     if 'error' in classification_results or 'probabilities' not in classification_results:
-        print("No classification probabilities to save")
+        logger.info("No classification probabilities to save")
         return
 
     # Create output dataframe with key columns and probabilities
@@ -215,19 +274,19 @@ def save_object_probabilities(df, classification_results, args):
     # Save to file
     output_file = os.path.join(args.outdir, "objects_with_probs.csv")
     output_subset.to_csv(output_file, index=False)
-    print(f"Saved object probabilities to {output_file}")
+    logger.info(f"Saved object probabilities to {output_file}")
 
     # Print TOI-6894b probability if available
     toi_mask = output_df['data_source'] == 'TOI'
     if toi_mask.any() and not output_df[toi_mask]['P_binary_like'].isna().all():
         toi_prob = output_df[toi_mask]['P_binary_like'].iloc[0]
-        print(f"\nTOI-6894b binary-like probability: {toi_prob:.3f}")
+        logger.info(f"\nTOI-6894b binary-like probability: {toi_prob:.3f}")
 
 def create_summary_report(df, gmm_results, beta_results, classification_results, args):
     """Create summary report"""
-    print("\n" + "=" * 60)
-    print("CREATING SUMMARY REPORT")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("CREATING SUMMARY REPORT")
+    logger.info("=" * 60)
 
     summary_file = os.path.join(args.outdir, "SUMMARY.txt")
 
@@ -292,7 +351,7 @@ def create_summary_report(df, gmm_results, beta_results, classification_results,
 
         f.write(f"Analysis completed: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-    print(f"Summary report saved to {summary_file}")
+    logger.info(f"Summary report saved to {summary_file}")
 
 def main():
     """Main analysis pipeline"""
@@ -336,6 +395,16 @@ Examples:
     parser.add_argument('--outdir', type=str, default='out',
                        help='Output directory (default: out)')
 
+    # Logging options
+    parser.add_argument('--logdir', type=str, default='logs',
+                       help='Directory for run logs (default: logs)')
+    parser.add_argument('--errordir', type=str, default='errors',
+                       help='Directory for error logs (default: errors)')
+    parser.add_argument('--log_basename', type=str, default='panoptic_vlms',
+                       help='Base filename for log files (timestamp appended automatically)')
+    parser.add_argument('--error_basename', type=str, default='panoptic_vlms_error',
+                       help='Base filename for error log files (timestamp appended automatically)')
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -344,23 +413,24 @@ Examples:
         parser.error('--bd is required when using --ps')
 
     # Setup
+    setup_logging(args)
     setup_output_directory(args.outdir)
-    print(f"Starting VLMS analysis at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Starting VLMS analysis at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     try:
         # Data acquisition
         if args.fetch:
             nasa_data, bd_data = fetch_data(args)
         else:
-            print("Loading local data files...")
+            logger.info("Loading local data files...")
             data_results = load_local_data(args.ps, args.bd)
             nasa_data, bd_data = data_results["nasa_df"], data_results["bd_df"]
             if nasa_data.empty and bd_data.empty:
                 raise ValueError("No data could be loaded from either source file")
             elif nasa_data.empty:
-                print("Warning: No NASA data loaded, proceeding with Brown Dwarf data only")
+                logger.warning("No NASA data loaded, proceeding with Brown Dwarf data only")
             elif bd_data.empty:
-                print("Warning: No Brown Dwarf data loaded, proceeding with NASA data only")
+                logger.warning("No Brown Dwarf data loaded, proceeding with NASA data only")
 
         # Data processing
         final_data = process_data(nasa_data, bd_data, args)
@@ -384,26 +454,28 @@ Examples:
         create_summary_report(final_data, gmm_results, beta_results, classification_results, args)
 
         # Final output summary
-        print("\n" + "=" * 60)
-        print("ANALYSIS COMPLETE!")
-        print("=" * 60)
-        print(f"Results saved to: {args.outdir}/")
-        print("\nGenerated files:")
-        print(f"  • {fig1_path}")
-        print(f"  • {fig2_path}")
-        print(f"  • {fig3_path}")
-        print(f"  • {args.outdir}/vlms_companions_stacked.csv")
-        print(f"  • {args.outdir}/objects_with_probs.csv")
-        print(f"  • {args.outdir}/gmm_summary.json")
-        print(f"  • {args.outdir}/beta_e_params.csv")
-        print(f"  • {args.outdir}/ks_test_e.txt")
-        print(f"  • {args.outdir}/feasibility_map.npz")
-        print(f"  • {args.outdir}/SUMMARY.txt")
-        print(f"\nTotal objects analyzed: {len(final_data)}")
-        print("Ready for manuscript integration!")
+        logger.info("\n" + "=" * 60)
+        logger.info("ANALYSIS COMPLETE!")
+        logger.info("=" * 60)
+        logger.info(f"Results saved to: {args.outdir}/")
+        logger.info("\nGenerated files:")
+        logger.info(f"  • {fig1_path}")
+        logger.info(f"  • {fig2_path}")
+        logger.info(f"  • {fig3_path}")
+        logger.info(f"  • {args.outdir}/vlms_companions_stacked.csv")
+        logger.info(f"  • {args.outdir}/objects_with_probs.csv")
+        logger.info(f"  • {args.outdir}/gmm_summary.json")
+        logger.info(f"  • {args.outdir}/beta_e_params.csv")
+        logger.info(f"  • {args.outdir}/ks_test_e.txt")
+        logger.info(f"  • {args.outdir}/feasibility_map.npz")
+        logger.info(f"  • {args.outdir}/SUMMARY.txt")
+        logger.info(f"\nTotal objects analyzed: {len(final_data)}")
+        logger.info(f"Run log: {args.log_file_path}")
+        logger.info(f"Error log: {args.error_file_path}")
+        logger.info("Ready for manuscript integration!")
 
     except Exception as e:
-        print(f"\nERROR: {e}")
+        logger.exception("An error occurred during the VLMS analysis")
         sys.exit(1)
 
 if __name__ == "__main__":
