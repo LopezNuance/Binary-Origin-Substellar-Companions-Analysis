@@ -351,9 +351,14 @@ Examples:
             nasa_data, bd_data = fetch_data(args)
         else:
             print("Loading local data files...")
-            nasa_data, bd_data = load_local_data(args.ps, args.bd)
-            if nasa_data.empty or bd_data.empty:
-                raise ValueError("Failed to load local data files")
+            data_results = load_local_data(args.ps, args.bd)
+            nasa_data, bd_data = data_results["nasa_df"], data_results["bd_df"]
+            if nasa_data.empty and bd_data.empty:
+                raise ValueError("No data could be loaded from either source file")
+            elif nasa_data.empty:
+                print("Warning: No NASA data loaded, proceeding with Brown Dwarf data only")
+            elif bd_data.empty:
+                print("Warning: No Brown Dwarf data loaded, proceeding with NASA data only")
 
         # Data processing
         final_data = process_data(nasa_data, bd_data, args)
