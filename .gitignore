@@ -5,3 +5,5 @@ venv/
 .venv
 tests/static_reports
 CLAUDE.md
+/repo-backup.bundle
+/ss-bp.tar.gz
