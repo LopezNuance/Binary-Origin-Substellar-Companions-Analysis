@@ -3,6 +3,9 @@ import numpy as np
 from typing import Tuple, Dict, Any
 import warnings
 
+
+JUPITER_TO_EARTH = 317.828
+
 class VLMSDataProcessor:
     """Process and combine data from NASA and Brown Dwarf catalogues for VLMS analysis"""
 
@@ -28,9 +31,9 @@ class VLMSDataProcessor:
 
         # Convert Jupiter masses to Earth masses if needed
         if 'pl_massj' in processed.columns and processed['pl_massj'].notna().any():
-            # Fill missing Earth masses with Jupiter mass conversion (1 MJ = 317.8 ME)
+            # Fill missing Earth masses with Jupiter mass conversion when available
             mask = processed['pl_masse'].isna() & processed['pl_massj'].notna()
-            processed.loc[mask, 'pl_masse'] = processed.loc[mask, 'pl_massj'] * 317.8
+            processed.loc[mask, 'pl_masse'] = processed.loc[mask, 'pl_massj'] * JUPITER_TO_EARTH
 
         # Create standardized column names
         column_mapping = {
@@ -38,6 +41,7 @@ class VLMSDataProcessor:
             'hostname': 'host_name',
             'st_mass': 'host_mass_msun',
             'pl_masse': 'companion_mass_mearth',
+            'pl_massj': 'companion_mass_mjup',
             'pl_orbsmax': 'semimajor_axis_au',
             'pl_orbeccen': 'eccentricity',
             'discoverymethod': 'discovery_method',
@@ -50,6 +54,12 @@ class VLMSDataProcessor:
         for old_col, new_col in column_mapping.items():
             if old_col in processed.columns:
                 processed[new_col] = processed[old_col]
+
+        # Derive missing mass columns
+        if 'companion_mass_mearth' in processed.columns and 'companion_mass_mjup' not in processed.columns:
+            processed['companion_mass_mjup'] = processed['companion_mass_mearth'] / JUPITER_TO_EARTH
+        if 'companion_mass_mjup' in processed.columns and 'companion_mass_mearth' not in processed.columns:
+            processed['companion_mass_mearth'] = processed['companion_mass_mjup'] * JUPITER_TO_EARTH
 
         # Filter by stellar mass
         if 'host_mass_msun' in processed.columns:
@@ -83,6 +93,7 @@ class VLMSDataProcessor:
         possible_mappings = {
             'host_mass_msun': ['M_star', 'stellar_mass', 'host_mass', 'M_host', 'Mstar'],
             'companion_mass_mearth': ['M_comp', 'companion_mass', 'M_companion', 'mass_comp'],
+            'companion_mass_mjup': ['M_comp_mjup', 'M_comp_mj', 'companion_mass_mjup', 'mass_comp_mj'],
             'semimajor_axis_au': ['a_au', 'semimajor_axis', 'sma', 'a'],
             'eccentricity': ['e', 'ecc', 'eccentricity'],
             'period_days': ['P_days', 'period', 'period_days'],
@@ -110,7 +121,13 @@ class VLMSDataProcessor:
         if 'companion_mass_mearth' in processed.columns:
             # Check if values suggest Jupiter masses (< 20 would be unusual for Earth masses)
             if processed['companion_mass_mearth'].median() < 20:
-                processed['companion_mass_mearth'] *= 317.8
+                processed['companion_mass_mearth'] *= JUPITER_TO_EARTH
+
+        # Derive missing mass columns
+        if 'companion_mass_mearth' in processed.columns and 'companion_mass_mjup' not in processed.columns:
+            processed['companion_mass_mjup'] = processed['companion_mass_mearth'] / JUPITER_TO_EARTH
+        if 'companion_mass_mjup' in processed.columns and 'companion_mass_mearth' not in processed.columns:
+            processed['companion_mass_mearth'] = processed['companion_mass_mjup'] * JUPITER_TO_EARTH
 
         # Filter by stellar mass
         if 'host_mass_msun' in processed.columns:
@@ -140,12 +157,28 @@ class VLMSDataProcessor:
         pd.DataFrame combined dataset
         """
 
-        # Define required columns for analysis
-        required_cols = ['host_mass_msun', 'companion_mass_mearth', 'semimajor_axis_au']
+        # Define required columns for analysis (require Jupiter-mass column)
+        required_cols = [
+            'host_mass_msun',
+            'companion_mass_mjup',
+            'semimajor_axis_au',
+            'eccentricity',
+        ]
 
         # Filter datasets to have required columns
         nasa_clean = nasa_df.dropna(subset=required_cols).copy()
         bd_clean = bd_df.dropna(subset=required_cols).copy()
+
+        # Derive Earth masses where needed for downstream tables/exports
+        for _df in (nasa_clean, bd_clean):
+            if 'companion_mass_mearth' not in _df.columns:
+                _df['companion_mass_mearth'] = _df['companion_mass_mjup'] * JUPITER_TO_EARTH
+            else:
+                missing_mask = _df['companion_mass_mearth'].isna()
+                if missing_mask.any():
+                    _df.loc[missing_mask, 'companion_mass_mearth'] = (
+                        _df.loc[missing_mask, 'companion_mass_mjup'] * JUPITER_TO_EARTH
+                    )
 
         # Combine while preserving the full union of feature columns so downstream
         # analyses (e.g. metallicity, discovery method) remain available even when
@@ -178,9 +211,18 @@ class VLMSDataProcessor:
 
         result = df.copy()
 
-        # Convert companion mass to Jupiter masses and solar masses
-        result['companion_mass_mjup'] = result['companion_mass_mearth'] / 317.8
-        result['companion_mass_msun'] = result['companion_mass_mearth'] / (317.8 * 1047.6)
+        # Ensure both mass representations are available
+        if 'companion_mass_mjup' not in result.columns:
+            if 'companion_mass_mearth' in result.columns:
+                result['companion_mass_mjup'] = result['companion_mass_mearth'] / JUPITER_TO_EARTH
+            else:
+                raise KeyError("companion_mass_mjup column is required for derived quantities")
+
+        if 'companion_mass_mearth' not in result.columns:
+            result['companion_mass_mearth'] = result['companion_mass_mjup'] * JUPITER_TO_EARTH
+
+        # Convert companion mass to solar masses
+        result['companion_mass_msun'] = result['companion_mass_mjup'] / 1047.6
 
         # Compute mass ratio q = M_companion / M_star
         result['mass_ratio'] = result['companion_mass_msun'] / result['host_mass_msun']
