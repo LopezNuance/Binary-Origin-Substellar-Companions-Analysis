@@ -135,7 +135,7 @@ export NUMBA_NUM_THREADS=<number_of_cores>
 If you use this code in your research, please cite:
 
 ```
-Johnson, R.S. (2024). Reconsidering the Origin of TOI-6894b as a Failed Binary Companion.
+Johnson, R.S. (2024). Binary-Origin Substellar Companions Around M Dwarfs: Evidence from Demographics, Orbital Architecture, and Migration Timescales.
 ```
 
 ## License
