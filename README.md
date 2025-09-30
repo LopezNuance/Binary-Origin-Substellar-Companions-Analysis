@@ -17,12 +17,7 @@ This system implements the analysis described in `improved-small-star-big-planet
 ### Requirements
 
 ```bash
-pip install numpy scipy pandas scikit-learn statsmodels matplotlib requests
-```
-
-For enhanced performance (optional):
-```bash
-pip install numba
+pip install numpy scipy pandas scikit-learn statsmodels matplotlib requests numba
 ```
 
 ### Quick Setup
@@ -53,6 +48,18 @@ python panoptic_vlms_project.py --ps pscomppars_lowM.csv --bd BD_catalogue.csv -
 python panoptic_vlms_project.py --fetch --toi_mstar 0.08 --toi_mc_mj 0.3 --toi_a_AU 0.05 --outdir results
 ```
 
+### Logging Options
+
+```bash
+python panoptic_vlms_project.py --fetch --outdir results \
+  --logdir logs/run_outputs --errordir logs/run_errors \
+  --log_basename vlms_pipeline --error_basename vlms_pipeline_error
+```
+
+- Each run mirrors stdout to a timestamped log file (default: `logs/panoptic_vlms_<timestamp>.log`).
+- Errors are additionally captured in a paired file (default: `errors/panoptic_vlms_error_<timestamp>.log`).
+- Omit the switches to accept the defaults or point them at project-specific directories.
+
 ## Outputs
 
 The system generates:
@@ -73,6 +80,10 @@ The system generates:
 - `beta_e_params.csv` - Beta distribution parameters for eccentricity groups
 - `ks_test_e.txt` - Kolmogorov-Smirnov test results
 - `SUMMARY.txt` - Complete analysis summary with key findings
+
+### Structured Message Passing
+
+Commit `abbc55e` introduced structured hand-offs between the statistical and visualization models by serializing Gaussian Mixture outputs to `gmm_summary.json` and companion metadata to CSV. Downstream tooling (including the plotting routines exercised in commit `004df6e`) consumes these JSON payloads to render figures and validate model behavior without re-running the full analysis, providing a stable message-passing contract between components.
 
 ## System Architecture
 
