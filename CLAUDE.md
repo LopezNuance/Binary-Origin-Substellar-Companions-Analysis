@@ -4,57 +4,97 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a LaTeX academic manuscript project for an astronomical research paper titled "Reconsidering the Origin of TOI-6894b as a Failed Binary Companion" by R. Scott Johnson. The project contains a scientific comment/response paper challenging the interpretation of TOI-6894b as a planet, instead proposing it as a failed binary companion.
+This is a hybrid scientific research project combining computational data analysis with academic paper writing. The project tests the hypothesis that TOI-6894b and similar substellar companions around very low-mass stars (VLMS) originate from mass-asymmetric cloud fragmentation (failed binary formation) rather than traditional disk-based planet formation.
+
+The project consists of:
+1. **Python analysis pipeline** - Comprehensive data processing and statistical analysis system
+2. **LaTeX academic paper** - Scientific manuscript presenting the research findings
 
 ## Project Structure
 
-- `comment.tex` - Main LaTeX document containing the scientific manuscript
-- `toi6894.bib` - Bibliography file with academic references
-- `Matters Arising manuscript.pdf` - Compiled PDF output
-- `comment.*` auxiliary files - LaTeX compilation artifacts (aux, bbl, blg, log, fls, fdb_latexmk)
-- `toi6894-matters-arising.tar.gz` - Archive file (likely for journal submission)
+### Python Components
+- `source/panoptic_vlms_project.py` - Main analysis pipeline and CLI entry point
+- `source/data_fetchers.py` - NASA Exoplanet Archive and Brown Dwarf Catalogue data fetchers
+- `source/data_processor.py` - VLMS data processing and companion analysis
+- `source/statistical_analysis.py` - Statistical methods including beta distribution analysis
+- `source/visualization.py` - Plotting and visualization tools
+- `source/md2unicode_math.py` - LaTeX/Unicode math conversion utilities
+- `tests/` - Comprehensive test suite (38+ tests)
+- `requirements.txt` - Python dependencies
+- `README.md` - Detailed project documentation and usage instructions
+
+### LaTeX Academic Paper
+- `papers/TOI-6894b_as_a_Failed_Binary_Companion.tex` - Main LaTeX manuscript
+- `papers/TOI-6894b as a Failed Binary Companion.bib` - Bibliography file
+- `papers/toi6894.bib` - Symlink to bibliography file
+- `papers/Matters Arising manuscript.pdf` - Compiled PDF output
+- `papers/*.aux`, `papers/*.bbl`, etc. - LaTeX compilation artifacts
+
+### Additional Files
+- `Binary-Origin Substellar Companions Around M Dwarf - Evidence from Demographics, Orbital Architecture, and Migration Timescales - outline.md` - Paper outline
+- `improved-small-star-big-planet-paper-with-code.md` - Project specifications
 
 ## Common Commands
 
-### Building the Document
-- `pdflatex comment.tex` - Compile LaTeX to PDF
-- `bibtex comment` - Process bibliography
-- `pdflatex comment.tex` (run twice after bibtex for proper references)
-- `latexmk -pdf comment.tex` - Automated compilation with proper dependency handling
-
-### Complete Build Process
+### Python Analysis Pipeline
 ```bash
-pdflatex comment.tex
-bibtex comment
-pdflatex comment.tex
-pdflatex comment.tex
+# Install dependencies
+pip install -r requirements.txt
+
+# Run complete analysis pipeline
+python source/panoptic_vlms_project.py --fetch --output-dir results/
+
+# Run tests
+pytest tests/
+
+# Static analysis
+python -m mypy source/
+python -m pylint source/
+```
+
+### LaTeX Document Building
+```bash
+cd papers/
+pdflatex "TOI-6894b_as_a_Failed_Binary_Companion.tex"
+bibtex "TOI-6894b_as_a_Failed_Binary_Companion"
+pdflatex "TOI-6894b_as_a_Failed_Binary_Companion.tex"
+pdflatex "TOI-6894b_as_a_Failed_Binary_Companion.tex"
 ```
 
 Or use latexmk for automated handling:
 ```bash
-latexmk -pdf comment.tex
+cd papers/
+latexmk -pdf "TOI-6894b_as_a_Failed_Binary_Companion.tex"
 ```
 
 ### Cleaning Build Files
 ```bash
-latexmk -c comment.tex  # Clean auxiliary files
-latexmk -C comment.tex  # Clean all generated files including PDF
+cd papers/
+latexmk -c "TOI-6894b_as_a_Failed_Binary_Companion.tex"  # Clean auxiliary files
+latexmk -C "TOI-6894b_as_a_Failed_Binary_Companion.tex"  # Clean all generated files including PDF
 ```
 
-## Document Structure
+## Data Sources
 
-The manuscript follows standard academic paper format:
-- Abstract summarizing the main argument
-- Main text presenting the alternative interpretation
-- Conclusion section
-- Bibliography using natbib package with plainnat style
+The Python pipeline fetches data from:
+- NASA Exoplanet Archive TAP service (PSCompPars table)
+- Brown Dwarf Companion Catalogue (Open University dataset)
+
+Analysis focuses on VLMS hosts (0.06-0.20 M☉) with companions having well-determined masses, orbits, and eccentricities.
+
+## Scientific Methodology
+
+The project implements:
+1. **Demographics analysis** - Testing for bimodality in (log q, log a) space
+2. **Orbital architecture studies** - Eccentricity distributions as a function of semi-major axis
+3. **Migration feasibility** - Kozai-Lidov cycles + tidal evolution modeling
+4. **Classification system** - Probabilistic origin assignment for individual systems
 
 ## LaTeX Configuration
 
-The document uses:
-- 12pt article class
-- A4 paper with 1-inch margins
+The academic manuscript uses:
+- 12pt article class with letter paper and 1-inch margins
 - authblk package for author affiliations
-- natbib for citation management
-- Times font
-- Standard academic packages (graphicx, geometry)
+- natbib for citation management with plainnat style
+- Times font family
+- Standard scientific packages (amsmath, amsfonts, graphicx, geometry)
