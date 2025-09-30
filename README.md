@@ -135,7 +135,7 @@ export NUMBA_NUM_THREADS=<number_of_cores>
 If you use this code in your research, please cite:
 
 ```
-Johnson, R.S. (2024). Binary-Origin Substellar Companions Around M Dwarfs: Evidence from Demographics, Orbital Architecture, and Migration Timescales.
+Johnson, R.S. (2025). Binary-Origin Substellar Companions Around M Dwarfs: Evidence from Demographics, Orbital Architecture, and Migration Timescales.
 ```
 
 ## License
