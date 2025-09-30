@@ -4,3 +4,4 @@ venv/
 .claude
 .venv
 tests/static_reports
+CLAUDE.md
