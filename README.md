@@ -75,6 +75,14 @@ Customize the plotted marker for TOI-6894b (host mass, companion mass, and “fi
 python panoptic_vlms_project.py --fetch --toi_mstar 0.08 --toi_mc_mj 0.30 --toi_a_AU 0.05 --outdir results
 ```
 
+Provide the system age (in Gyr) to activate age–orbit comparisons against the rest of the catalog:
+
+```
+python panoptic_vlms_project.py --fetch --toi_age_gyr 5.0 --outdir results
+```
+
+When TOI-6894’s age is supplied, the pipeline emits `results/age_comparison.csv` summarizing Δage, semimajor axis, and eccentricity for every system with a measured host age.
+
 The script prints a summary and writes all artifacts to `results/` (filenames listed in §7).
 
 ## 5) Data model (column schema after preprocessing)
@@ -138,6 +146,12 @@ x=\big(\log q,\ \log a,\ e,\ \log M_\star,\ [\mathrm{Fe/H}],\ \text{method dummi
 ]
 Training is performed on heuristic anchors (high-(q) vs low-(q)) as a **fallback**; with labeled anchors available, swap in that label vector. We report **5-fold AUROC** and write per-object probabilities to `objects_with_probs.csv`. This is intended as a practical, transparent tool—coefficients can be exported for community use.
 
+### 6.5 Age–orbit correlation study
+
+* Ingest `st_age` (PSCompPars) or catalogue ages mapped onto `host_age_gyr` when available; derive Δage ≡ age − age_TOI.
+* Flag systems younger than TOI-6894b and assess how Δage co-varies with semimajor axis and eccentricity (Pearson correlations, median Δage, younger fraction).
+* Deliverables: `age_comparison.csv` (rows with age, Δage, (a), (e), source) and an “Age comparison” block inside `SUMMARY.txt` with the summary statistics.
+
 ## 7) Outputs (reproducibility artifacts)
 
 * **Figures**
@@ -148,13 +162,14 @@ Training is performed on heuristic anchors (high-(q) vs low-(q)) as a **fallback
 * **Data tables**
   `vlms_companions_stacked.csv` — Combined cleaned catalog for VLMS hosts.
   `objects_with_probs.csv` — Each object with (q), (P_{\rm binary_like}), and metadata.
+  `age_comparison.csv` — Systems with measured ages, Δage vs TOI-6894b, (a), (e).
 
 * **Model summaries**
   `gmm_summary.json` — BIC(1-comp) vs BIC(2-comp); chosen model.
   `beta_e_params.csv` — ((\hat\alpha,\hat\beta)) by subset.
   `ks_test_e.txt` — KS statistic and p-value on (e) distributions.
   `feasibility_map.npz` — Arrays used to render Fig. 3.
-  `SUMMARY.txt` — One-page recap including source URLs (see §2) and the three headline numbers you’ll quote in the paper.
+  `SUMMARY.txt` — One-page recap including source URLs (see §2), age-correlation metrics, and the three headline numbers you’ll quote in the paper.
 
 ## 8) Robustness and selection-effect controls
 

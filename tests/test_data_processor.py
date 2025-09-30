@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from data_processor import VLMSDataProcessor
+from data_processor import VLMSDataProcessor, JUPITER_TO_EARTH
 
 
 def make_processor():
@@ -24,7 +24,7 @@ def test_process_nasa_data_converts_jupiter_masses_and_filters():
     # Only first row within mass window
     assert len(processed) == 1
     row = processed.iloc[0]
-    assert np.isclose(row["companion_mass_mearth"], 0.5 * 317.8)
+    assert np.isclose(row["companion_mass_mearth"], 0.5 * JUPITER_TO_EARTH)
     assert row["data_source"] == "NASA"
 
 
@@ -82,7 +82,7 @@ def test_compute_derived_quantities_adds_expected_columns():
     processor = make_processor()
     df = pd.DataFrame({
         "host_mass_msun": [0.1],
-        "companion_mass_mearth": [317.8],
+        "companion_mass_mearth": [JUPITER_TO_EARTH],
         "semimajor_axis_au": [0.1],
         "eccentricity": [np.nan],
     })
@@ -109,7 +109,7 @@ def test_add_toi6894b_appends_entry():
     processor = make_processor()
     df = pd.DataFrame({
         "host_mass_msun": [0.1],
-        "companion_mass_mearth": [317.8],
+        "companion_mass_mearth": [JUPITER_TO_EARTH],
         "semimajor_axis_au": [0.1],
         "mass_ratio": [0.01],
         "log_mass_ratio": [-2],
@@ -123,12 +123,31 @@ def test_add_toi6894b_appends_entry():
         "data_source": ["NASA"],
     })
 
-    updated = processor.add_toi6894b(df)
+    updated = processor.add_toi6894b(df, toi_age_gyr=5.0)
 
     assert len(updated) == 2
     toi_row = updated[updated["data_source"] == "TOI"].iloc[0]
     assert toi_row["companion_name"] == "TOI-6894b"
     assert np.isclose(toi_row["companion_mass_mjup"], 0.3)
+    assert np.isclose(toi_row["host_age_gyr"], 5.0)
+
+
+def test_annotate_age_relative_to_toi_adds_difference_columns():
+    processor = make_processor()
+    df = pd.DataFrame({
+        "host_age_gyr": [4.0, 6.5],
+        "semimajor_axis_au": [0.05, 0.1],
+        "eccentricity": [0.1, 0.2],
+    })
+
+    annotated = processor.annotate_age_relative_to_toi(df, 5.0)
+
+    assert "age_delta_vs_toi_gyr" in annotated.columns
+    assert "is_younger_than_toi" in annotated.columns
+    assert np.isclose(annotated.iloc[0]["age_delta_vs_toi_gyr"], -1.0)
+    assert annotated.iloc[0]["is_younger_than_toi"]
+    assert np.isclose(annotated.iloc[1]["age_delta_vs_toi_gyr"], 1.5)
+    assert not annotated.iloc[1]["is_younger_than_toi"]
 
 
 def test_combine_datasets_handles_missing_companion_mass_mearth():
@@ -158,8 +177,8 @@ def test_combine_datasets_handles_missing_companion_mass_mearth():
     assert len(combined) == 2
 
     # Earth masses should be derived from Jupiter masses
-    assert np.isclose(combined.iloc[0]["companion_mass_mearth"], 1.0 * 317.828)
-    assert np.isclose(combined.iloc[1]["companion_mass_mearth"], 1.5 * 317.828)
+    assert np.isclose(combined.iloc[0]["companion_mass_mearth"], 1.0 * JUPITER_TO_EARTH)
+    assert np.isclose(combined.iloc[1]["companion_mass_mearth"], 1.5 * JUPITER_TO_EARTH)
 
 
 def test_combine_datasets_handles_missing_companion_mass_mjup():
@@ -169,7 +188,7 @@ def test_combine_datasets_handles_missing_companion_mass_mjup():
     # Create frames with only mearth column
     nasa = pd.DataFrame({
         "host_mass_msun": [0.1],
-        "companion_mass_mearth": [317.8],  # Only mearth, no mjup
+        "companion_mass_mearth": [JUPITER_TO_EARTH],  # Only mearth, no mjup
         "semimajor_axis_au": [0.05],
         "eccentricity": [0.1],
     })

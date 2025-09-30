@@ -25,12 +25,12 @@ class NASAExoplanetArchiveFetcher:
 
         Returns:
         --------
-        pd.DataFrame with columns: pl_name, hostname, st_mass, pl_masse,
-                                  pl_orbsmax, pl_orbeccen, discoverymethod, st_met,
+        pd.DataFrame with columns: pl_name, hostname, st_mass, st_age, pl_masse,
+                                   pl_orbsmax, pl_orbeccen, discoverymethod, st_met,
                                    pl_massj, st_rad, st_teff
         """
         query = f"""
-        SELECT pl_name, hostname, st_mass, pl_masse, pl_orbsmax, pl_orbeccen,
+        SELECT pl_name, hostname, st_mass, st_age, pl_masse, pl_orbsmax, pl_orbeccen,
                discoverymethod, st_met, pl_massj, st_rad, st_teff
         FROM pscomppars
         WHERE st_mass >= {min_stellar_mass}
@@ -85,6 +85,9 @@ class NASAExoplanetArchiveFetcher:
         # Replace extreme metallicity outliers with NaN
         if 'st_met' in df.columns:
             df.loc[(df['st_met'] < -2.5) | (df['st_met'] > 0.7), 'st_met'] = np.nan
+
+        if 'st_age' in df.columns:
+            df.loc[df['st_age'] <= 0, 'st_age'] = np.nan
 
         # Drop rows with any remaining nulls in important fields
         df = df.dropna(subset=['pl_name', 'hostname', 'pl_orbsmax', 'st_mass'])

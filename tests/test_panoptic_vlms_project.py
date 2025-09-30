@@ -106,3 +106,22 @@ def test_save_object_probabilities_writes_expected_file(tmp_path: Path):
     assert saved_probs[0] == pytest.approx(0.2)
     assert np.isnan(saved_probs[1])
     assert saved_probs[2] == pytest.approx(0.8)
+
+
+def test_analyze_age_relationships_generates_summary(tmp_path: Path):
+    df = pd.DataFrame({
+        "companion_name": ["Obj1", "Obj2", "Obj3"],
+        "host_name": ["Star1", "Star2", "Star3"],
+        "host_age_gyr": [4.0, 6.5, np.nan],
+        "age_delta_vs_toi_gyr": [-1.0, 1.5, np.nan],
+        "semimajor_axis_au": [0.05, 0.2, 0.1],
+        "eccentricity": [0.1, 0.3, 0.2],
+        "data_source": ["NASA", "BD_Catalogue", "NASA"],
+    })
+
+    args = SimpleNamespace(outdir=str(tmp_path))
+    summary = pipeline.analyze_age_relationships(df, toi_age_gyr=5.0, args=args)
+
+    assert summary is not None
+    assert summary["n_with_age"] == 2
+    assert Path(summary["output_path"]).exists()

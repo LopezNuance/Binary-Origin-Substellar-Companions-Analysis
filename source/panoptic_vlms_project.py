@@ -139,8 +139,11 @@ def process_data(nasa_data, bd_data, args):
         toi_mstar=args.toi_mstar,
         toi_mc_mj=args.toi_mc_mj,
         toi_a_au=args.toi_a_AU,
-        toi_ecc=args.toi_ecc
+        toi_ecc=args.toi_ecc,
+        toi_age_gyr=getattr(args, 'toi_age_gyr', None)
     )
+
+    final_with_toi = processor.annotate_age_relative_to_toi(final_with_toi, getattr(args, 'toi_age_gyr', None))
 
     # Save processed data
     output_file = os.path.join(args.outdir, "vlms_companions_stacked.csv")
@@ -245,6 +248,84 @@ def create_additional_plots(df, gmm_results, classification_results, args):
     else:
         logger.warning("Skipping classification plot due to insufficient data")
 
+
+def analyze_age_relationships(df, toi_age_gyr, args):
+    """Evaluate host ages relative to TOI-6894b and orbital properties."""
+
+    if toi_age_gyr is None or (isinstance(toi_age_gyr, float) and np.isnan(toi_age_gyr)):
+        logger.info("No TOI-6894b age provided; skipping age comparison analysis")
+        return None
+
+    logger.info("\n" + "=" * 60)
+    logger.info("ANALYZING HOST AGE RELATIONSHIPS")
+    logger.info("=" * 60)
+
+    if 'host_age_gyr' not in df.columns:
+        logger.warning("Dataset lacks host_age_gyr column; skipping age analysis")
+        return None
+
+    subset_cols = [
+        'companion_name',
+        'host_name',
+        'host_age_gyr',
+        'age_delta_vs_toi_gyr',
+        'semimajor_axis_au',
+        'eccentricity',
+        'data_source'
+    ]
+
+    available = df[subset_cols].copy()
+    available = available.dropna(subset=['host_age_gyr', 'semimajor_axis_au', 'eccentricity'])
+
+    if available.empty:
+        logger.warning("No systems with complete age, semimajor axis, and eccentricity data")
+        return {
+            'toi_age_gyr': toi_age_gyr,
+            'n_with_age': 0,
+            'output_path': None
+        }
+
+    available.sort_values('age_delta_vs_toi_gyr', inplace=True)
+
+    age_table_path = os.path.join(args.outdir, "age_comparison.csv")
+    available.to_csv(age_table_path, index=False)
+    logger.info(f"Saved age comparison table to {age_table_path}")
+
+    age_diff = available['age_delta_vs_toi_gyr']
+
+    younger_fraction = float((age_diff < 0).sum() / len(age_diff))
+    median_delta = float(np.median(age_diff))
+
+    def safe_corr(x, y):
+        if len(x) < 2 or np.allclose(np.std(x), 0) or np.allclose(np.std(y), 0):
+            return np.nan
+        return float(np.corrcoef(x, y)[0, 1])
+
+    corr_semimajor = safe_corr(age_diff, available['semimajor_axis_au'])
+    corr_ecc = safe_corr(age_diff, available['eccentricity'])
+
+    logger.info(f"Systems with age data: {len(available)}")
+    logger.info(f"Median age difference vs TOI-6894b: {median_delta:+.2f} Gyr")
+    logger.info(f"Fraction younger than TOI-6894b: {younger_fraction:.2f}")
+    logger.info(
+        "Correlation(age Δ, semimajor axis): "
+        f"{corr_semimajor if not np.isnan(corr_semimajor) else 'N/A'}"
+    )
+    logger.info(
+        "Correlation(age Δ, eccentricity): "
+        f"{corr_ecc if not np.isnan(corr_ecc) else 'N/A'}"
+    )
+
+    return {
+        'toi_age_gyr': toi_age_gyr,
+        'n_with_age': int(len(available)),
+        'median_delta': median_delta,
+        'younger_fraction': younger_fraction,
+        'corr_semimajor': corr_semimajor,
+        'corr_ecc': corr_ecc,
+        'output_path': age_table_path
+    }
+
 def save_object_probabilities(df, classification_results, args):
     """Save objects with their binary-like probabilities"""
     if 'error' in classification_results or 'probabilities' not in classification_results:
@@ -282,7 +363,7 @@ def save_object_probabilities(df, classification_results, args):
         toi_prob = output_df[toi_mask]['P_binary_like'].iloc[0]
         logger.info(f"\nTOI-6894b binary-like probability: {toi_prob:.3f}")
 
-def create_summary_report(df, gmm_results, beta_results, classification_results, args):
+def create_summary_report(df, gmm_results, beta_results, classification_results, age_summary, args):
     """Create summary report"""
     logger.info("\n" + "=" * 60)
     logger.info("CREATING SUMMARY REPORT")
@@ -335,6 +416,23 @@ def create_summary_report(df, gmm_results, beta_results, classification_results,
                     toi_prob = classification_results['probabilities'][toi_in_class[0]]
                     f.write(f"  TOI-6894b P(binary-like): {toi_prob:.3f}\n")
             f.write("\n")
+
+        # Age analysis summary
+        if age_summary:
+            f.write("AGE COMPARISON:\n")
+            f.write(f"  TOI-6894b age (Gyr): {age_summary['toi_age_gyr']:.2f}\n")
+            f.write(f"  Systems with age data: {age_summary['n_with_age']}\n")
+            if age_summary['n_with_age'] > 0:
+                f.write(f"  Median Δage (system - TOI): {age_summary['median_delta']:+.2f} Gyr\n")
+                f.write(f"  Fraction younger than TOI: {age_summary['younger_fraction']:.2f}\n")
+                corr_a = age_summary['corr_semimajor']
+                corr_e = age_summary['corr_ecc']
+                f.write("  Corr(Δage, semimajor axis): ")
+                f.write(f"{corr_a:.3f}\n" if not np.isnan(corr_a) else "N/A\n")
+                f.write("  Corr(Δage, eccentricity): ")
+                f.write(f"{corr_e:.3f}\n\n" if not np.isnan(corr_e) else "N/A\n\n")
+            else:
+                f.write("  No systems with both age and orbital data.\n\n")
 
         # Data sources
         f.write("DATA SOURCES:\n")
@@ -390,6 +488,8 @@ Examples:
                        help='TOI-6894b semi-major axis (AU, default: 0.05)')
     parser.add_argument('--toi_ecc', type=float, default=0.0,
                        help='TOI-6894b eccentricity (default: 0.0)')
+    parser.add_argument('--toi_age_gyr', type=float, default=None,
+                       help='TOI-6894 system age (Gyr, optional)')
 
     # Output options
     parser.add_argument('--outdir', type=str, default='out',
@@ -450,8 +550,11 @@ Examples:
         # Save object probabilities
         save_object_probabilities(final_data, classification_results, args)
 
+        # Age analysis
+        age_summary = analyze_age_relationships(final_data, args.toi_age_gyr, args)
+
         # Summary report
-        create_summary_report(final_data, gmm_results, beta_results, classification_results, args)
+        create_summary_report(final_data, gmm_results, beta_results, classification_results, age_summary, args)
 
         # Final output summary
         logger.info("\n" + "=" * 60)
@@ -469,6 +572,8 @@ Examples:
         logger.info(f"  • {args.outdir}/ks_test_e.txt")
         logger.info(f"  • {args.outdir}/feasibility_map.npz")
         logger.info(f"  • {args.outdir}/SUMMARY.txt")
+        if age_summary and age_summary.get('output_path'):
+            logger.info(f"  • {age_summary['output_path']}")
         logger.info(f"\nTotal objects analyzed: {len(final_data)}")
         logger.info(f"Run log: {args.log_file_path}")
         logger.info(f"Error log: {args.error_file_path}")

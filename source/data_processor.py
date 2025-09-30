@@ -40,6 +40,7 @@ class VLMSDataProcessor:
             'pl_name': 'companion_name',
             'hostname': 'host_name',
             'st_mass': 'host_mass_msun',
+            'st_age': 'host_age_gyr',
             'pl_masse': 'companion_mass_mearth',
             'pl_massj': 'companion_mass_mjup',
             'pl_orbsmax': 'semimajor_axis_au',
@@ -60,6 +61,9 @@ class VLMSDataProcessor:
             processed['companion_mass_mjup'] = processed['companion_mass_mearth'] / JUPITER_TO_EARTH
         if 'companion_mass_mjup' in processed.columns and 'companion_mass_mearth' not in processed.columns:
             processed['companion_mass_mearth'] = processed['companion_mass_mjup'] * JUPITER_TO_EARTH
+
+        if 'host_age_gyr' in processed.columns:
+            processed['host_age_gyr'] = pd.to_numeric(processed['host_age_gyr'], errors='coerce')
 
         # Filter by stellar mass
         if 'host_mass_msun' in processed.columns:
@@ -92,6 +96,7 @@ class VLMSDataProcessor:
         # Try to identify column names (catalogue format may vary)
         possible_mappings = {
             'host_mass_msun': ['M_star', 'stellar_mass', 'host_mass', 'M_host', 'Mstar'],
+            'host_age_gyr': ['age', 'Age', 'stellar_age', 'host_age', 'Age_Gyr', 'Age_Gyrs'],
             'companion_mass_mearth': ['M_comp', 'companion_mass', 'M_companion', 'mass_comp'],
             'companion_mass_mjup': ['M_comp_mjup', 'M_comp_mj', 'companion_mass_mjup', 'mass_comp_mj'],
             'semimajor_axis_au': ['a_au', 'semimajor_axis', 'sma', 'a'],
@@ -128,6 +133,10 @@ class VLMSDataProcessor:
             processed['companion_mass_mjup'] = processed['companion_mass_mearth'] / JUPITER_TO_EARTH
         if 'companion_mass_mjup' in processed.columns and 'companion_mass_mearth' not in processed.columns:
             processed['companion_mass_mearth'] = processed['companion_mass_mjup'] * JUPITER_TO_EARTH
+
+        if 'host_age_gyr' in processed.columns:
+            processed['host_age_gyr'] = pd.to_numeric(processed['host_age_gyr'], errors='coerce')
+            processed.loc[processed['host_age_gyr'] <= 0, 'host_age_gyr'] = np.nan
 
         # Filter by stellar mass
         if 'host_mass_msun' in processed.columns:
@@ -252,9 +261,24 @@ class VLMSDataProcessor:
 
         return result
 
+    def annotate_age_relative_to_toi(self, df: pd.DataFrame, toi_age_gyr: float | None) -> pd.DataFrame:
+        """Annotate dataset with age comparisons to TOI-6894b host."""
+
+        if toi_age_gyr is None or np.isnan(toi_age_gyr):
+            return df
+
+        result = df.copy()
+        if 'host_age_gyr' not in result.columns:
+            result['host_age_gyr'] = np.nan
+
+        result['age_delta_vs_toi_gyr'] = result['host_age_gyr'] - toi_age_gyr
+        result['is_younger_than_toi'] = result['age_delta_vs_toi_gyr'] < 0
+
+        return result
+
     def add_toi6894b(self, df: pd.DataFrame, toi_mstar: float = 0.08,
                     toi_mc_mj: float = 0.3, toi_a_au: float = 0.05,
-                    toi_ecc: float = 0.0) -> pd.DataFrame:
+                    toi_ecc: float = 0.0, toi_age_gyr: float | None = None) -> pd.DataFrame:
         """
         Add TOI-6894b to the dataset
 
@@ -288,6 +312,7 @@ class VLMSDataProcessor:
             'companion_mass_msun': toi_mc_mj / 1047.6,
             'semimajor_axis_au': toi_a_au,
             'eccentricity': toi_ecc,
+            'host_age_gyr': toi_age_gyr,
             'discovery_method': 'Transit',
             'data_source': 'TOI',
             'mass_ratio': (toi_mc_mj / 1047.6) / toi_mstar,
