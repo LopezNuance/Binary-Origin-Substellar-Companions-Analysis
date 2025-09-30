@@ -7,6 +7,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score
 from scipy import stats
 from scipy.optimize import minimize
+from typing import Dict, Any
 import warnings
 import json
 
@@ -111,7 +112,7 @@ class StatisticalAnalyzer:
 
         return results
 
-    def beta_distribution_analysis(self, df: pd.DataFrame) -> dict:
+    def beta_distribution_analysis(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         Fit Beta distributions to eccentricity data for different mass ratio groups
 
@@ -127,7 +128,7 @@ class StatisticalAnalyzer:
 
         print("Performing Beta distribution analysis of eccentricities...")
 
-        results = {}
+        results: Dict[str, Any] = {}
 
         # Split by mass ratio
         high_q = df[df['high_mass_ratio']]['eccentricity'].dropna()
