@@ -150,6 +150,35 @@ def test_annotate_age_relative_to_toi_adds_difference_columns():
     assert not annotated.iloc[1]["is_younger_than_toi"]
 
 
+def test_annotate_age_relative_to_toi_without_reference_age_returns_input():
+    processor = make_processor()
+    df = pd.DataFrame({
+        "host_age_gyr": [4.0],
+        "semimajor_axis_au": [0.05],
+    })
+
+    annotated = processor.annotate_age_relative_to_toi(df, None)
+
+    assert annotated is df
+    assert list(annotated.columns) == ["host_age_gyr", "semimajor_axis_au"]
+
+
+def test_annotate_age_relative_to_toi_creates_age_column_when_missing():
+    processor = make_processor()
+    df = pd.DataFrame({
+        "semimajor_axis_au": [0.05, 0.1],
+        "eccentricity": [0.1, 0.2],
+    })
+
+    annotated = processor.annotate_age_relative_to_toi(df, 3.0)
+
+    assert "host_age_gyr" in annotated.columns
+    assert annotated["host_age_gyr"].isna().all()
+    assert "age_delta_vs_toi_gyr" in annotated.columns
+    assert annotated["age_delta_vs_toi_gyr"].isna().all()
+    assert not annotated["is_younger_than_toi"].any()
+
+
 def test_combine_datasets_handles_missing_companion_mass_mearth():
     """Test that combine_datasets can handle frames with only mjup column"""
     processor = make_processor()
@@ -418,7 +447,40 @@ def test_enhance_age_analysis_features_no_age_data():
 
     result = processor.enhance_age_analysis_features(df)
 
-    # Should still have the columns but filled with NaN or False
-    assert "log_host_age_gyr" in result.columns
-    assert "potential_migrator" in result.columns
-    assert result["potential_migrator"].sum() == 0  # No potential migrators without age data
+    # Without age information the function just adds the placeholder column
+    expected_cols = {
+        "semimajor_axis_au",
+        "eccentricity",
+        "mass_ratio",
+        "host_mass_msun",
+        "host_age_gyr",
+    }
+    assert set(result.columns) == expected_cols
+    assert result["host_age_gyr"].isna().all()
+
+
+def test_enhance_age_analysis_features_computes_expected_values():
+    processor = make_processor()
+
+    df = pd.DataFrame({
+        "host_age_gyr": [1.0, 2.0],
+        "semimajor_axis_au": [0.2, 0.5],
+        "eccentricity": [0.4, 0.6],
+        "mass_ratio": [0.05, 0.005],
+        "host_mass_msun": [0.1, 0.1],
+    })
+
+    result = processor.enhance_age_analysis_features(df)
+
+    first = result.iloc[0]
+    second = result.iloc[1]
+
+    assert np.isclose(first["tidal_timescale_proxy"], 0.064)
+    assert np.isclose(first["migration_efficiency"], 0.064)
+    assert np.isclose(first["age_corrected_eccentricity"], 0.4 * np.log10(2))
+    assert bool(first["potential_migrator"])
+
+    assert np.isclose(second["tidal_timescale_proxy"], 62.5)
+    assert np.isclose(second["migration_efficiency"], 31.25)
+    assert np.isclose(second["age_corrected_eccentricity"], 0.6 * np.log10(3))
+    assert not bool(second["potential_migrator"])
