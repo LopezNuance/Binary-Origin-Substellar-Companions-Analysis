@@ -145,6 +145,10 @@ def process_data(nasa_data, bd_data, args):
 
     final_with_toi = processor.annotate_age_relative_to_toi(final_with_toi, getattr(args, 'toi_age_gyr', None))
 
+    # Enhanced age analysis features
+    final_with_toi = processor.classify_age_groups(final_with_toi)
+    final_with_toi = processor.enhance_age_analysis_features(final_with_toi)
+
     # Save processed data
     output_file = os.path.join(args.outdir, "vlms_companions_stacked.csv")
     processor.save_processed_data(final_with_toi, output_file)
@@ -185,14 +189,19 @@ def perform_statistical_analysis(df, args):
     logger.info("\n2. Beta Distribution Analysis")
     beta_results = analyzer.beta_distribution_analysis(df)
 
+    # Age-migration regression analysis
+    logger.info("\n3. Age-Migration Regression Analysis")
+    age_regression_results = analyzer.age_migration_regression_analysis(df)
+
     # Origin classification
-    logger.info("\n3. Origin Classification")
+    logger.info("\n4. Origin Classification")
     classification_results = analyzer.origin_classification(df)
 
     # Save statistical results
-    analyzer.save_results(gmm_results, beta_results, classification_results, args.outdir)
+    analyzer.save_results(gmm_results, beta_results, classification_results,
+                         args.outdir, age_regression_results)
 
-    return gmm_results, beta_results, classification_results
+    return gmm_results, beta_results, age_regression_results, classification_results
 
 def create_feasibility_map(args):
     """Create Kozai-Lidov feasibility map"""
@@ -363,7 +372,7 @@ def save_object_probabilities(df, classification_results, args):
         toi_prob = output_df[toi_mask]['P_binary_like'].iloc[0]
         logger.info(f"\nTOI-6894b binary-like probability: {toi_prob:.3f}")
 
-def create_summary_report(df, gmm_results, beta_results, classification_results, age_summary, args):
+def create_summary_report(df, gmm_results, beta_results, age_regression_results, classification_results, age_summary, args):
     """Create summary report"""
     logger.info("\n" + "=" * 60)
     logger.info("CREATING SUMMARY REPORT")
@@ -398,6 +407,21 @@ def create_summary_report(df, gmm_results, beta_results, classification_results,
             f.write(f"  Low-q group:  α={beta_results['low_q']['alpha']:.3f}, β={beta_results['low_q']['beta']:.3f}\n")
             f.write(f"  KS test p-value: {beta_results['ks_test']['p_value']:.4f}\n")
             f.write(f"  Distributions significantly different: {beta_results['ks_test']['significant']}\n\n")
+
+        # Age regression results
+        if age_regression_results and 'error' not in age_regression_results:
+            f.write("AGE-MIGRATION REGRESSION ANALYSIS:\n")
+            f.write(f"  Systems with age data: {age_regression_results['n_total_objects']}\n")
+            corr = age_regression_results['correlations']['age_semimajor_axis']
+            f.write(f"  Age vs semimajor axis correlation: r={corr['pearson_r']:.3f} (p={corr['pearson_p']:.3f})\n")
+            corr_e = age_regression_results['correlations']['age_eccentricity']
+            f.write(f"  Age vs eccentricity correlation: r={corr_e['pearson_r']:.3f} (p={corr_e['pearson_p']:.3f})\n")
+            reg = age_regression_results['regressions']['log_semimajor_axis_vs_log_age']
+            f.write(f"  log(a) ~ log(age) regression: R²={reg['r_squared']:.3f}, slope={reg['slope']:.3f}\n")
+            if 'multiple_regression' in age_regression_results['regressions']:
+                mr = age_regression_results['regressions']['multiple_regression']
+                f.write(f"  Multiple regression R²={mr['r_squared']:.3f}\n")
+            f.write("\n")
 
         # Classification results
         if 'error' not in classification_results:
@@ -539,7 +563,7 @@ Examples:
         fig1_path, fig2_path = create_visualizations(final_data, args)
 
         # Statistical analysis
-        gmm_results, beta_results, classification_results = perform_statistical_analysis(final_data, args)
+        gmm_results, beta_results, age_regression_results, classification_results = perform_statistical_analysis(final_data, args)
 
         # Feasibility mapping
         feasibility_results, fig3_path = create_feasibility_map(args)
@@ -554,7 +578,7 @@ Examples:
         age_summary = analyze_age_relationships(final_data, args.toi_age_gyr, args)
 
         # Summary report
-        create_summary_report(final_data, gmm_results, beta_results, classification_results, age_summary, args)
+        create_summary_report(final_data, gmm_results, beta_results, age_regression_results, classification_results, age_summary, args)
 
         # Final output summary
         logger.info("\n" + "=" * 60)

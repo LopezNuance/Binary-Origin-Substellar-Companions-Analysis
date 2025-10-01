@@ -337,3 +337,88 @@ def test_process_functions_create_both_mass_columns():
     bd_processed = processor.process_bd_data(bd_df)
     assert "companion_mass_mjup" in bd_processed.columns
     assert "companion_mass_mearth" in bd_processed.columns
+
+
+def test_classify_age_groups():
+    """Test age group classification"""
+    processor = make_processor()
+
+    df = pd.DataFrame({
+        "host_age_gyr": [0.5, 2.0, 8.0, np.nan],
+        "semimajor_axis_au": [0.05, 0.1, 0.2, 0.3],
+        "eccentricity": [0.1, 0.2, 0.3, 0.4],
+    })
+
+    result = processor.classify_age_groups(df)
+
+    assert "age_group" in result.columns
+    assert "age_group_numeric" in result.columns
+    assert "young_efficient_migration" in result.columns
+    assert "has_age_data" in result.columns
+
+    # Check classifications
+    assert result.iloc[0]["age_group"] == "Young"
+    assert result.iloc[1]["age_group"] == "Intermediate"
+    assert result.iloc[2]["age_group"] == "Old"
+    assert result.iloc[3]["age_group"] == "Unknown"
+
+    # Check flags
+    assert result.iloc[0]["young_efficient_migration"] == True
+    assert result.iloc[1]["young_efficient_migration"] == False
+    assert result.iloc[0]["has_age_data"] == True
+    assert result.iloc[3]["has_age_data"] == False
+
+
+def test_enhance_age_analysis_features():
+    """Test enhanced age analysis feature creation"""
+    processor = make_processor()
+
+    df = pd.DataFrame({
+        "host_age_gyr": [1.0, 5.0, np.nan],
+        "semimajor_axis_au": [0.05, 0.1, 0.15],
+        "eccentricity": [0.1, 0.2, 0.3],
+        "mass_ratio": [0.001, 0.01, 0.1],
+        "host_mass_msun": [0.1, 0.08, 0.12],
+    })
+
+    result = processor.enhance_age_analysis_features(df)
+
+    expected_columns = [
+        "log_host_age_gyr",
+        "tidal_timescale_proxy",
+        "migration_efficiency",
+        "age_corrected_eccentricity",
+        "potential_migrator"
+    ]
+
+    for col in expected_columns:
+        assert col in result.columns
+
+    # Check that features are calculated for systems with age data
+    assert not pd.isna(result.iloc[0]["log_host_age_gyr"])
+    assert not pd.isna(result.iloc[1]["log_host_age_gyr"])
+    assert pd.isna(result.iloc[2]["log_host_age_gyr"])
+
+    # Check migration efficiency calculation
+    assert not pd.isna(result.iloc[0]["migration_efficiency"])
+    assert not pd.isna(result.iloc[1]["migration_efficiency"])
+    assert pd.isna(result.iloc[2]["migration_efficiency"])
+
+
+def test_enhance_age_analysis_features_no_age_data():
+    """Test enhanced features when no age data is available"""
+    processor = make_processor()
+
+    df = pd.DataFrame({
+        "semimajor_axis_au": [0.05, 0.1],
+        "eccentricity": [0.1, 0.2],
+        "mass_ratio": [0.001, 0.01],
+        "host_mass_msun": [0.1, 0.08],
+    })
+
+    result = processor.enhance_age_analysis_features(df)
+
+    # Should still have the columns but filled with NaN or False
+    assert "log_host_age_gyr" in result.columns
+    assert "potential_migrator" in result.columns
+    assert result["potential_migrator"].sum() == 0  # No potential migrators without age data

@@ -276,6 +276,124 @@ class VLMSDataProcessor:
 
         return result
 
+    def classify_age_groups(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Classify systems by age groups for migration analysis
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            Dataset with host_age_gyr column
+
+        Returns:
+        --------
+        pd.DataFrame with age group classifications
+        """
+
+        result = df.copy()
+
+        if 'host_age_gyr' not in result.columns:
+            result['host_age_gyr'] = np.nan
+
+        # Define age groups based on stellar evolution and migration timescales
+        # Young: < 1 Gyr (active, large radii, efficient tides)
+        # Intermediate: 1-5 Gyr (main sequence evolution)
+        # Old: > 5 Gyr (settled, smaller radii, weaker tides)
+
+        result['age_group'] = 'Unknown'
+        age_mask = ~result['host_age_gyr'].isna()
+
+        result.loc[age_mask & (result['host_age_gyr'] < 1.0), 'age_group'] = 'Young'
+        result.loc[age_mask & (result['host_age_gyr'] >= 1.0) & (result['host_age_gyr'] <= 5.0), 'age_group'] = 'Intermediate'
+        result.loc[age_mask & (result['host_age_gyr'] > 5.0), 'age_group'] = 'Old'
+
+        # Add numerical age group for analysis
+        age_group_mapping = {'Young': 1, 'Intermediate': 2, 'Old': 3, 'Unknown': 0}
+        result['age_group_numeric'] = result['age_group'].map(age_group_mapping)
+
+        # Add migration-relevant age flags
+        result['young_efficient_migration'] = (result['host_age_gyr'] < 1.0)  # Young stars with efficient migration
+        result['has_age_data'] = ~result['host_age_gyr'].isna()
+
+        print(f"Age group classification:")
+        if age_mask.any():
+            for group in ['Young', 'Intermediate', 'Old']:
+                count = (result['age_group'] == group).sum()
+                print(f"  {group}: {count} objects")
+            print(f"  Unknown age: {(result['age_group'] == 'Unknown').sum()} objects")
+        else:
+            print("  No age data available for classification")
+
+        return result
+
+    def enhance_age_analysis_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add derived features for age-migration analysis
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            Dataset with age and orbital data
+
+        Returns:
+        --------
+        pd.DataFrame with enhanced age analysis features
+        """
+
+        result = df.copy()
+
+        if 'host_age_gyr' not in result.columns:
+            result['host_age_gyr'] = np.nan
+            return result
+
+        # Log age for scaling
+        result['log_host_age_gyr'] = np.log10(result['host_age_gyr'].replace(0, np.nan))
+
+        # Age-normalized orbital parameters (for systems with known ages)
+        age_mask = ~result['host_age_gyr'].isna() & (result['host_age_gyr'] > 0)
+
+        if age_mask.any():
+            # Estimate migration timescale proxy
+            # Approximate tidal timescale scaling: t_tidal ∝ a^5
+            result['tidal_timescale_proxy'] = np.nan
+            result.loc[age_mask, 'tidal_timescale_proxy'] = (
+                result.loc[age_mask, 'semimajor_axis_au']**5.0 /
+                (result.loc[age_mask, 'mass_ratio'] * result.loc[age_mask, 'host_mass_msun'])
+            )
+
+            # Migration efficiency indicator (smaller = more efficient)
+            result['migration_efficiency'] = np.nan
+            result.loc[age_mask, 'migration_efficiency'] = (
+                result.loc[age_mask, 'tidal_timescale_proxy'] / result.loc[age_mask, 'host_age_gyr']
+            )
+
+            # Age-corrected eccentricity (high e in old systems suggests recent migration)
+            result['age_corrected_eccentricity'] = np.nan
+            result.loc[age_mask, 'age_corrected_eccentricity'] = (
+                result.loc[age_mask, 'eccentricity'] * np.log10(result.loc[age_mask, 'host_age_gyr'] + 1)
+            )
+
+        # Flag systems potentially affected by migration
+        if 'tidal_timescale_proxy' in result.columns:
+            # Systems where migration timescale is comparable to or less than system age
+            result['potential_migrator'] = (
+                result['migration_efficiency'] < 10.0  # Arbitrary threshold
+            ).fillna(False)
+        else:
+            result['potential_migrator'] = False
+
+        print(f"Enhanced age analysis features:")
+        if age_mask.any():
+            n_migrators = result['potential_migrator'].sum()
+            print(f"  Potential migrators: {n_migrators} objects")
+            if 'migration_efficiency' in result.columns:
+                med_eff = result['migration_efficiency'].median()
+                print(f"  Median migration efficiency: {med_eff:.2e}")
+        else:
+            print("  No systems with age data for enhancement")
+
+        return result
+
     def add_toi6894b(self, df: pd.DataFrame, toi_mstar: float = 0.08,
                     toi_mc_mj: float = 0.3, toi_a_au: float = 0.05,
                     toi_ecc: float = 0.0, toi_age_gyr: float | None = None) -> pd.DataFrame:

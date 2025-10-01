@@ -89,11 +89,14 @@ The script prints a summary and writes all artifacts to `results/` (filenames li
 
 The stacked VLMS dataset (`vlms_companions_stacked.csv`) contains at minimum:
 
-* `st_mass` (M☉), `pl_bmassj` ($M_J$), `q = pl_bmassj/(st_mass*1047.56)`,
-* `pl_orbsmax` (AU), `pl_orbeccen` (unitless),
-* `discoverymethod` (string), `st_metfe` (dex, may be NaN),
-* derived: `logq = log10(q)`, `loga = log10(pl_orbsmax)`,
-* `source ∈ {PSCompPars, BDcat}`.
+* `host_mass_msun` (M☉), `companion_mass_mjup` ($M_J$), `mass_ratio` $q$,
+* `semimajor_axis_au` (AU), `eccentricity` (unitless),
+* `discovery_method` (string), `metallicity` (dex, may be NaN),
+* `host_age_gyr` (Gyr, when available),
+* **Derived quantities:** `log_mass_ratio`, `log_semimajor_axis`, `log_host_mass`, `above_deuterium_limit`, `high_mass_ratio`,
+* **Age analysis features:** `age_group` ∈ {Young, Intermediate, Old, Unknown}, `log_host_age_gyr`, `tidal_timescale_proxy`, `migration_efficiency`, `potential_migrator`,
+* **TOI comparison:** `age_delta_vs_toi_gyr`, `is_younger_than_toi` (when TOI age provided),
+* `data_source ∈ {NASA, BD_Catalogue, TOI}`.
 
 We also write object-level probabilities `P_binary_like` after classification (§6.4).
 
@@ -165,6 +168,34 @@ Training is performed on heuristic anchors (high-$q$ vs low-$q$) as a **fallback
 * Flag systems younger than TOI-6894b and assess how Δage co-varies with semimajor axis and eccentricity (Pearson correlations, median Δage, younger fraction).
 * Deliverables: `age_comparison.csv` (rows with age, Δage, $a$, $e$, source) and an "Age comparison" block inside `SUMMARY.txt` with the summary statistics.
 
+### 6.6 Age-migration regression analysis
+
+**Introductory statistical approach** preceding the physics-based migration modeling:
+
+* **Simple correlations:** Pearson and Spearman correlations between stellar age and orbital parameters (semimajor axis, eccentricity).
+* **Linear regression models:**
+  - $\log a \sim \log(\text{age})$: Power-law relationship between orbital distance and stellar age
+  - $e \sim \log(\text{age})$: Eccentricity evolution with stellar age
+  - **Multiple regression:** $\log a \sim \log(\text{age}) + e + \log M_\star$: Combined age and stellar property effects
+
+* **Deliverables:** `age_regression_summary.json` (coefficients, R², p-values), `age_regression_report.txt` (detailed analysis report)
+
+### 6.7 Age-dependent migration physics
+
+**Physics-based approach** incorporating stellar evolution effects:
+
+* **Age-dependent stellar properties:**
+  - Stellar radius: $R_\star(t) = R_{\rm MS} \times \left[1 + 0.1 \log_{10}(t/1\,\text{Gyr})\right]$ (young stars larger, contract with age)
+  - Tidal Q-factor: $Q_\star(t)$ increases from $\sim 10^5$ (young) to $\sim 10^7$ (old) as magnetic activity declines
+
+* **Age-dependent migration timescales:**
+  - **Kozai-Lidov cycles:** Timescale independent of age, but available migration time = min(KL timescale, stellar age)
+  - **Tidal evolution:** $t_{\rm tidal} \propto Q_\star(t) \times (a/R_\star(t))^5$ — young systems migrate faster due to larger radii and lower Q-factors
+
+* **Enhanced feasibility analysis:** 3D parameter space (perturber mass, separation, **stellar age**) to identify optimal migration scenarios
+
+* **Migration efficiency indicators:** Systems classified by ratio of tidal timescale to stellar age — efficient migrators have ratios $\lesssim 10$
+
 ## 7) Outputs (reproducibility artifacts)
 
 * **Figures**
@@ -173,7 +204,7 @@ Training is performed on heuristic anchors (high-$q$ vs low-$q$) as a **fallback
   `fig3_feasibility.png` — KL + tides feasibility fraction across $(M_{\rm out}, a_{\rm out})$.
 
 * **Data tables**
-  `vlms_companions_stacked.csv` — Combined cleaned catalog for VLMS hosts.
+  `vlms_companions_stacked.csv` — Combined cleaned catalog for VLMS hosts with enhanced age analysis features.
   `objects_with_probs.csv` — Each object with $q$, $P_{\rm binary\_like}$, and metadata.
   `age_comparison.csv` — Systems with measured ages, Δage vs TOI-6894b, $a$, $e$.
 
@@ -181,8 +212,10 @@ Training is performed on heuristic anchors (high-$q$ vs low-$q$) as a **fallback
   `gmm_summary.json` — BIC(1-comp) vs BIC(2-comp); chosen model.
   `beta_e_params.csv` — $(\hat\alpha, \hat\beta)$ by subset.
   `ks_test_e.txt` — KS statistic and p-value on $e$ distributions.
+  `age_regression_summary.json` — Age-migration regression coefficients, R², and statistical tests.
+  `age_regression_report.txt` — Detailed age-migration regression analysis report.
   `feasibility_map.npz` — Arrays used to render Fig. 3.
-  `SUMMARY.txt` — One-page recap including source URLs (see §2), age-correlation metrics, and the three headline numbers you'll quote in the paper.
+  `SUMMARY.txt` — One-page recap including source URLs (see §2), age-correlation metrics, age-regression results, and the three headline numbers you'll quote in the paper.
 
 ## 8) Robustness and selection-effect controls
 
