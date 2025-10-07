@@ -1,6 +1,0 @@
-
-*.md merge=union
-*.txt merge=union
-*.rst merge=union
-*.tex merge=union
-docs/** merge=union
