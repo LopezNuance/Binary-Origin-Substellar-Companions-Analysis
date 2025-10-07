@@ -7,3 +7,6 @@ tests/static_reports
 CLAUDE.md
 /repo-backup.bundle
 /ss-bp.tar.gz
+*/__pycache__/
+__pycache__
+.gitignore.swp
