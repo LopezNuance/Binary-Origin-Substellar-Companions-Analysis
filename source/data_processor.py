@@ -346,11 +346,14 @@ class VLMSDataProcessor:
             result['host_age_gyr'] = np.nan
             return result
 
-        # Log age for scaling
-        result['log_host_age_gyr'] = np.log10(result['host_age_gyr'].replace(0, np.nan))
+        # Ensure age data are numeric before computing derived features
+        result['host_age_gyr'] = pd.to_numeric(result['host_age_gyr'], errors='coerce')
 
-        # Age-normalized orbital parameters (for systems with known ages)
+        # Log age for scaling (defined only for positive ages)
         age_mask = ~result['host_age_gyr'].isna() & (result['host_age_gyr'] > 0)
+        result['log_host_age_gyr'] = np.nan
+        if age_mask.any():
+            result.loc[age_mask, 'log_host_age_gyr'] = np.log10(result.loc[age_mask, 'host_age_gyr'])
 
         if age_mask.any():
             # Estimate migration timescale proxy

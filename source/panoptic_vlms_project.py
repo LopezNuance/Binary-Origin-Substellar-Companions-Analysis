@@ -92,6 +92,38 @@ def setup_output_directory(output_dir: str):
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     logger.info(f"Output directory: {output_dir}")
 
+def count_candidates(min_stellar_mass: float = 0.06, max_stellar_mass: float = 0.20) -> int:
+    """Count total candidates from online sources that meet requirements"""
+    print("Counting candidates from online data sources...")
+
+    total_candidates = 0
+
+    # Count NASA Exoplanet Archive candidates
+    try:
+        nasa_fetcher = NASAExoplanetArchiveFetcher()
+        nasa_data = nasa_fetcher.fetch_vlms_companions(min_stellar_mass, max_stellar_mass)
+        nasa_count = len(nasa_data)
+        total_candidates += nasa_count
+        print(f"NASA Exoplanet Archive candidates: {nasa_count}")
+    except Exception as e:
+        print(f"Error counting NASA candidates: {e}")
+        nasa_count = 0
+
+    # Count Brown Dwarf Catalogue candidates
+    try:
+        bd_fetcher = BrownDwarfCatalogueFetcher()
+        bd_data = bd_fetcher.fetch_catalogue()
+        bd_filtered = bd_fetcher.filter_vlms_hosts(bd_data, min_stellar_mass, max_stellar_mass)
+        bd_count = len(bd_filtered)
+        total_candidates += bd_count
+        print(f"Brown Dwarf Catalogue candidates: {bd_count}")
+    except Exception as e:
+        print(f"Error counting Brown Dwarf candidates: {e}")
+        bd_count = 0
+
+    print(f"Total candidates meeting requirements: {total_candidates}")
+    return total_candidates
+
 def fetch_data(args):
     """Fetch data from online sources"""
     logger.info("=" * 60)
@@ -114,6 +146,25 @@ def fetch_data(args):
     bd_fetcher.save_data(bd_filtered, bd_file)
 
     return nasa_data, bd_filtered
+
+def sample_data(nasa_data, bd_data, percentage: float):
+    """Sample a percentage of the combined dataset"""
+    if percentage >= 100:
+        return nasa_data, bd_data
+
+    # Calculate sample sizes
+    nasa_sample_size = int(len(nasa_data) * percentage / 100) if len(nasa_data) > 0 else 0
+    bd_sample_size = int(len(bd_data) * percentage / 100) if len(bd_data) > 0 else 0
+
+    # Sample the data
+    nasa_sampled = nasa_data.sample(n=nasa_sample_size, random_state=42) if nasa_sample_size > 0 else nasa_data
+    bd_sampled = bd_data.sample(n=bd_sample_size, random_state=42) if bd_sample_size > 0 else bd_data
+
+    print(f"Sampled {len(nasa_sampled)} NASA entries ({nasa_sample_size}/{len(nasa_data)})")
+    print(f"Sampled {len(bd_sampled)} BD entries ({bd_sample_size}/{len(bd_data)})")
+    print(f"Total sampled: {len(nasa_sampled) + len(bd_sampled)} ({percentage}% of original)")
+
+    return nasa_sampled, bd_sampled
 
 def process_data(nasa_data, bd_data, args):
     """Process and combine datasets"""
@@ -482,11 +533,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Interactive mode: count candidates and specify percentage interactively
+  python panoptic_vlms_project.py --count-candidates --outdir results
+
+  # Non-interactive mode: process specific percentage of candidates
+  python panoptic_vlms_project.py --fetch --percent 50 --outdir results
+
   # Fetch fresh data and run full analysis
   python panoptic_vlms_project.py --fetch --outdir results
 
   # Use local CSV files
   python panoptic_vlms_project.py --ps pscomppars_lowM.csv --bd BD_catalogue.csv --outdir results
+
+  # Use local CSV files with percentage sampling
+  python panoptic_vlms_project.py --ps pscomppars_lowM.csv --bd BD_catalogue.csv --percent 25 --outdir results
 
   # Customize TOI-6894b parameters
   python panoptic_vlms_project.py --fetch --toi_mstar 0.08 --toi_mc_mj 0.3 --toi_a_AU 0.05 --outdir results
@@ -494,14 +554,20 @@ Examples:
     )
 
     # Data source options
-    data_group = parser.add_mutually_exclusive_group(required=True)
+    data_group = parser.add_mutually_exclusive_group(required=False)
     data_group.add_argument('--fetch', action='store_true',
                           help='Fetch fresh data from online sources')
     data_group.add_argument('--ps', type=str,
                           help='Path to local NASA PSCompPars CSV file')
+    data_group.add_argument('--count-candidates', action='store_true',
+                          help='Report number of candidates from online sources and wait for user input')
 
     parser.add_argument('--bd', type=str,
                        help='Path to local Brown Dwarf Catalogue CSV file (required with --ps)')
+
+    # New percentage argument for non-interactive mode
+    parser.add_argument('--percent', type=float, metavar='N',
+                       help='Process only N%% of candidates (0-100) in non-interactive mode')
 
     # TOI-6894b parameters
     parser.add_argument('--toi_mstar', type=float, default=0.08,
@@ -533,8 +599,14 @@ Examples:
     args = parser.parse_args()
 
     # Validate arguments
-    if not args.fetch and args.bd is None:
+    if not args.fetch and not args.count_candidates and args.ps is None:
+        parser.error('Must specify --fetch, --count-candidates, or --ps')
+    if args.ps and args.bd is None:
         parser.error('--bd is required when using --ps')
+    if args.percent is not None and (args.percent < 0 or args.percent > 100):
+        parser.error('--percent must be between 0 and 100')
+    if args.count_candidates and args.percent is not None:
+        parser.error('--count-candidates and --percent cannot be used together')
 
     # Setup
     setup_logging(args)
@@ -542,13 +614,49 @@ Examples:
     logger.info(f"Starting VLMS analysis at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     try:
-        # Data acquisition
-        if args.fetch:
+        # Handle count-candidates mode (interactive)
+        if args.count_candidates:
+            candidate_count = count_candidates()
+            print(f"\nFound {candidate_count} candidates that fit the requirements.")
+            print("The requirements are:")
+            print("  - VLMS hosts with mass between 0.06-0.20 solar masses")
+            print("  - Complete data for stellar mass, companion mass, and semimajor axis")
+            print("  - Reasonable physical parameters")
+
+            while True:
+                try:
+                    user_input = input("\nEnter percentage of candidates to process (0-100) or 'exit' to quit: ").strip()
+                    if user_input.lower() == 'exit':
+                        print("Exiting.")
+                        sys.exit(0)
+
+                    percentage = float(user_input)
+                    if 0 <= percentage <= 100:
+                        break
+                    else:
+                        print("Please enter a number between 0 and 100.")
+                except ValueError:
+                    print("Please enter a valid number or 'exit'.")
+
+            # Now fetch and process the data with the specified percentage
+            args.fetch = True  # Override to fetch data
             nasa_data, bd_data = fetch_data(args)
+            nasa_data, bd_data = sample_data(nasa_data, bd_data, percentage)
+
+        # Data acquisition
+        elif args.fetch:
+            nasa_data, bd_data = fetch_data(args)
+            # Apply percentage sampling if specified
+            if args.percent is not None:
+                nasa_data, bd_data = sample_data(nasa_data, bd_data, args.percent)
         else:
             logger.info("Loading local data files...")
             data_results = load_local_data(args.ps, args.bd)
             nasa_data, bd_data = data_results["nasa_df"], data_results["bd_df"]
+            # Apply percentage sampling if specified
+            if args.percent is not None:
+                nasa_data, bd_data = sample_data(nasa_data, bd_data, args.percent)
+
             if nasa_data.empty and bd_data.empty:
                 raise ValueError("No data could be loaded from either source file")
             elif nasa_data.empty:

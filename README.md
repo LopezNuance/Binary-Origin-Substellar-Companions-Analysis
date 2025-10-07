@@ -30,6 +30,15 @@ Close Saturn/Jupiter–mass companions around ultra–low-mass M dwarfs pose an 
 * Retain both true-mass and $m\sin i$ (flagged); sensitivity checks exclude $m\sin i$.
 * Clip $e \in [0,1)$; handle upper limits in robustness tests (see §8).
 
+**Candidate requirements**
+
+The candidates that are counted and processed by the new interactive and percentage modes must satisfy:
+
+* **VLMS host criteria:** Stellar mass between 0.06–0.20 M☉
+* **Data completeness:** Must have stellar mass, companion mass, and semimajor axis values
+* **Physical plausibility:** Stellar temperature 2000–4000K, reasonable metallicity (-2.5 to +0.7 dex)
+* **Orbital validity:** Semimajor axis > 0, eccentricity in range [0,1)
+
 ## 3) Installation & environment (CPU-optimized)
 
 Use a BLAS-backed scientific Python stack. Example with conda:
@@ -56,6 +65,36 @@ numactl --interleave=all python panoptic_vlms_project.py --fetch --outdir result
 ```
 
 ## 4) End-to-end usage
+
+### 4.1) Interactive candidate counting and percentage selection
+
+Report the number of candidates that meet requirements and interactively specify what percentage to process:
+
+```
+python panoptic_vlms_project.py --count-candidates --outdir results
+```
+
+This mode will:
+1. Count candidates from both NASA Exoplanet Archive and Brown Dwarf Catalogue
+2. Display the total number that meet the candidate requirements
+3. Wait for user input to specify what percentage (0-100) to process
+4. Allow the user to type 'exit' to quit without processing
+
+### 4.2) Non-interactive percentage processing
+
+Process a specific percentage of candidates without interaction:
+
+```
+python panoptic_vlms_project.py --fetch --percent 50 --outdir results
+```
+
+Or with local files:
+
+```
+python panoptic_vlms_project.py --ps pscomppars_lowM.csv --bd BD_catalogue.csv --percent 25 --outdir results
+```
+
+### 4.3) Standard usage modes
 
 Fetch fresh catalogs and run full analysis:
 
