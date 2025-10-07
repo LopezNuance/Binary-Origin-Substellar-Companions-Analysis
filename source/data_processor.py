@@ -98,7 +98,14 @@ class VLMSDataProcessor:
             'host_mass_msun': ['M_star', 'stellar_mass', 'host_mass', 'M_host', 'Mstar'],
             'host_age_gyr': ['age', 'Age', 'stellar_age', 'host_age', 'Age_Gyr', 'Age_Gyrs'],
             'companion_mass_mearth': ['M_comp', 'companion_mass', 'M_companion', 'mass_comp'],
-            'companion_mass_mjup': ['M_comp_mjup', 'M_comp_mj', 'companion_mass_mjup', 'mass_comp_mj'],
+            'companion_mass_mjup': [
+                'M_comp_mjup',
+                'M_comp_mj',
+                'companion_mass_mjup',
+                'mass_comp_mj',
+                'mass',
+                'msini'
+            ],
             'semimajor_axis_au': ['a_au', 'semimajor_axis', 'sma', 'a'],
             'eccentricity': ['e', 'ecc', 'eccentricity'],
             'period_days': ['P_days', 'period', 'period_days'],

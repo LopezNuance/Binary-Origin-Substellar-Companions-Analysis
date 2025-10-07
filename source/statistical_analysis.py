@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score
 from scipy import stats
 from scipy.optimize import minimize
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import warnings
 import json
 
@@ -191,7 +191,54 @@ class StatisticalAnalyzer:
             print(f"Error in Beta distribution analysis: {e}")
             results['error'] = str(e)
 
+        # Always compute bootstrap bagging summary alongside the parametric fit
+        try:
+            bagging_results = self.bagged_beta_distribution_analysis(df)
+        except Exception as e:  # Defensive: bagging should not block pipeline
+            warnings.warn(f"Bagged beta analysis failed: {e}")
+            bagging_results = {'error': str(e)}
+
+        results['bagging'] = bagging_results
+
         return results
+
+    def bagged_beta_distribution_analysis(
+        self,
+        df: pd.DataFrame,
+        n_bootstrap: int = 500,
+        sample_fraction: float = 0.8,
+        min_group_size: int = 3,
+        random_state: Optional[int] = 42
+    ) -> Dict[str, Any]:
+        """
+        Apply bootstrap bagging to the eccentricity-based statistical tests.
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            Dataset with eccentricity and high_mass_ratio columns
+        n_bootstrap : int
+            Number of bootstrap resamples to draw
+        sample_fraction : float
+            Fraction of each group to sample (with replacement) per bootstrap
+        min_group_size : int
+            Minimum number of samples per group in each bootstrap
+        random_state : Optional[int]
+            Seed for the random number generator
+
+        Returns:
+        --------
+        dict with aggregated bagging statistics for the Beta-based tests
+        """
+
+        bagger = StatisticalBagging(
+            n_bootstrap=n_bootstrap,
+            sample_fraction=sample_fraction,
+            min_group_size=min_group_size,
+            random_state=random_state
+        )
+
+        return bagger.bootstrap_beta_distribution(df)
 
     def origin_classification(self, df: pd.DataFrame) -> dict:
         """
@@ -455,7 +502,8 @@ class StatisticalAnalyzer:
 
     def save_results(self, gmm_results: dict, beta_results: dict,
                     classification_results: dict, output_dir: str = ".",
-                    age_regression_results: dict = None):
+                    age_regression_results: dict = None,
+                    bagged_beta_results: Optional[Dict[str, Any]] = None):
         """Save statistical analysis results to files"""
 
         # Save GMM results
@@ -498,6 +546,37 @@ Mann-Whitney U Test:
             with open(f"{output_dir}/ks_test_e.txt", 'w') as f:
                 f.write(ks_text)
             print(f"Saved statistical tests to {output_dir}/ks_test_e.txt")
+
+        # Save bagged beta bootstrap summary and raw draws
+        def _to_builtin(obj):
+            if isinstance(obj, np.generic):
+                return obj.item()
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            if isinstance(obj, dict):
+                return {k: _to_builtin(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_to_builtin(v) for v in obj]
+            return obj
+
+        effective_bagging = bagged_beta_results or beta_results.get('bagging')
+        if effective_bagging:
+            if 'error' in effective_bagging:
+                print(f"Bagged beta analysis reported error: {effective_bagging['error']}")
+            else:
+                summary_only = {k: v for k, v in effective_bagging.items()
+                                if k != 'bootstrap_distributions'}
+                summary_path = f"{output_dir}/beta_e_bootstrap_summary.json"
+                with open(summary_path, 'w') as f:
+                    json.dump(_to_builtin(summary_only), f, indent=2)
+                print(f"Saved bagged Beta summary to {summary_path}")
+
+                distributions = effective_bagging.get('bootstrap_distributions')
+                if distributions:
+                    dist_df = pd.DataFrame(_to_builtin(distributions))
+                    dist_path = f"{output_dir}/beta_e_bootstrap_distributions.csv"
+                    dist_df.to_csv(dist_path, index=False)
+                    print(f"Saved bagged Beta samples to {dist_path}")
 
         # Save age regression results
         if age_regression_results and 'error' not in age_regression_results:
@@ -569,6 +648,175 @@ may indicate evolutionary processes affecting companion orbits over stellar life
             with open(f"{output_dir}/age_regression_report.txt", 'w') as f:
                 f.write(regression_text)
             print(f"Saved detailed age regression report to {output_dir}/age_regression_report.txt")
+
+
+class StatisticalBagging:
+    """Bootstrap bagging utilities for the VLMS statistical analyses."""
+
+    def __init__(
+        self,
+        n_bootstrap: int = 500,
+        sample_fraction: float = 0.8,
+        min_group_size: int = 3,
+        random_state: Optional[int] = None
+    ) -> None:
+        if n_bootstrap <= 0:
+            raise ValueError("n_bootstrap must be positive")
+        if not 0 < sample_fraction <= 1:
+            raise ValueError("sample_fraction must be in (0, 1]")
+        if min_group_size < 1:
+            raise ValueError("min_group_size must be at least 1")
+
+        self.n_bootstrap = int(n_bootstrap)
+        self.sample_fraction = float(sample_fraction)
+        self.min_group_size = int(min_group_size)
+        self.random_state = random_state
+        self._rng = np.random.default_rng(random_state)
+
+    def _sample_group(self, df: pd.DataFrame) -> pd.DataFrame:
+        size = max(self.min_group_size, int(np.ceil(len(df) * self.sample_fraction)))
+        indices = self._rng.choice(len(df), size=size, replace=True)
+        return df.iloc[indices].copy()
+
+    @staticmethod
+    def _summarize(values: list[float]) -> Dict[str, float]:
+        array = np.asarray(values, dtype=float)
+        if array.size == 0:
+            return {
+                'mean': float('nan'),
+                'std': float('nan'),
+                'median': float('nan'),
+                'ci95_low': float('nan'),
+                'ci95_high': float('nan')
+            }
+
+        return {
+            'mean': float(array.mean()),
+            'std': float(array.std(ddof=1)) if array.size > 1 else 0.0,
+            'median': float(np.median(array)),
+            'ci95_low': float(np.quantile(array, 0.025)),
+            'ci95_high': float(np.quantile(array, 0.975))
+        }
+
+    def bootstrap_beta_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Run bootstrap bagging on the eccentricity-based statistical tests.
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            Dataset with `eccentricity` and `high_mass_ratio` columns
+
+        Returns:
+        --------
+        dict summarizing bootstrap distributions of test statistics
+        """
+
+        required_columns = {'eccentricity', 'high_mass_ratio'}
+        missing = required_columns - set(df.columns)
+        if missing:
+            return {'error': f'Missing required columns for bagging: {sorted(missing)}'}
+
+        high_group = df[df['high_mass_ratio']].dropna(subset=['eccentricity'])
+        low_group = df[~df['high_mass_ratio']].dropna(subset=['eccentricity'])
+
+        if len(high_group) < self.min_group_size or len(low_group) < self.min_group_size:
+            return {'error': 'Insufficient data for bootstrapped beta analysis'}
+
+        ks_stats: list[float] = []
+        ks_p_values: list[float] = []
+        u_stats: list[float] = []
+        u_p_values: list[float] = []
+        alpha_high: list[float] = []
+        beta_high: list[float] = []
+        alpha_low: list[float] = []
+        beta_low: list[float] = []
+
+        successes = 0
+
+        for _ in range(self.n_bootstrap):
+            high_sample = self._sample_group(high_group)
+            low_sample = self._sample_group(low_group)
+
+            high_vals = np.clip(high_sample['eccentricity'].to_numpy(dtype=float), 1e-6, 1 - 1e-6)
+            low_vals = np.clip(low_sample['eccentricity'].to_numpy(dtype=float), 1e-6, 1 - 1e-6)
+
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=RuntimeWarning)
+                    high_params = stats.beta.fit(high_vals, floc=0, fscale=1)
+                    low_params = stats.beta.fit(low_vals, floc=0, fscale=1)
+
+                ks_statistic, ks_p = stats.ks_2samp(high_vals, low_vals)
+                u_statistic, u_p = stats.mannwhitneyu(high_vals, low_vals, alternative='two-sided')
+
+            except Exception:
+                continue
+
+            successes += 1
+
+            alpha_high.append(float(high_params[0]))
+            beta_high.append(float(high_params[1]))
+            alpha_low.append(float(low_params[0]))
+            beta_low.append(float(low_params[1]))
+
+            ks_stats.append(float(ks_statistic))
+            ks_p_values.append(float(ks_p))
+            u_stats.append(float(u_statistic))
+            u_p_values.append(float(u_p))
+
+        if successes == 0:
+            return {'error': 'Bootstrap bagging failed for all resamples'}
+
+        ks_p_array = np.asarray(ks_p_values)
+        u_p_array = np.asarray(u_p_values)
+
+        summary: Dict[str, Any] = {
+            'n_bootstrap': self.n_bootstrap,
+            'n_successful': successes,
+            'n_failed': self.n_bootstrap - successes,
+            'sample_fraction': self.sample_fraction,
+            'min_group_size': self.min_group_size,
+            'ks_test': {
+                'statistic': self._summarize(ks_stats),
+                'p_value': self._summarize(ks_p_values),
+                'significant_rate': float(np.mean(ks_p_array < 0.05))
+            },
+            'mannwhitney_test': {
+                'statistic': self._summarize(u_stats),
+                'p_value': self._summarize(u_p_values),
+                'significant_rate': float(np.mean(u_p_array < 0.05))
+            },
+            'beta_parameters': {
+                'high_q': {
+                    'alpha': self._summarize(alpha_high),
+                    'beta': self._summarize(beta_high)
+                },
+                'low_q': {
+                    'alpha': self._summarize(alpha_low),
+                    'beta': self._summarize(beta_low)
+                }
+            },
+            'bootstrap_distributions': {
+                'ks_p_values': ks_p_values,
+                'ks_statistics': ks_stats,
+                'mannwhitney_p_values': u_p_values,
+                'mannwhitney_statistics': u_stats,
+                'alpha_high': alpha_high,
+                'beta_high': beta_high,
+                'alpha_low': alpha_low,
+                'beta_low': beta_low
+            }
+        }
+
+        print(
+            "Bootstrapped Beta analysis: "
+            f"{successes}/{self.n_bootstrap} successful resamples; "
+            f"mean KS p-value = {summary['ks_test']['p_value']['mean']:.3f}, "
+            f"significant fraction = {summary['ks_test']['significant_rate']:.2f}"
+        )
+
+        return summary
 
 
 @jit(nopython=True)

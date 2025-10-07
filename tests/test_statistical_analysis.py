@@ -61,6 +61,9 @@ def test_beta_distribution_analysis_returns_parameters():
     assert "low_q" in results
     assert results["high_q"]["n_objects"] > 0
     assert "ks_test" in results
+    assert "bagging" in results
+    assert "n_bootstrap" in results["bagging"]
+    assert results["bagging"]["n_successful"] <= results["bagging"]["n_bootstrap"]
 
 
 def test_origin_classification_returns_probabilities():
@@ -91,19 +94,72 @@ def test_save_results_writes_expected_files(tmp_path: Path):
     }
     classification_results = {"error": "skip"}
 
-    analyzer.save_results(gmm_results, beta_results, classification_results, output_dir=str(tmp_path))
+    bagged_results = {
+        "n_bootstrap": 5,
+        "n_successful": 5,
+        "n_failed": 0,
+        "sample_fraction": 0.8,
+        "min_group_size": 3,
+        "ks_test": {
+            "statistic": {"mean": 0.1, "std": 0.0, "median": 0.1, "ci95_low": 0.1, "ci95_high": 0.1},
+            "p_value": {"mean": 0.2, "std": 0.0, "median": 0.2, "ci95_low": 0.2, "ci95_high": 0.2},
+            "significant_rate": 0.0,
+        },
+        "mannwhitney_test": {
+            "statistic": {"mean": 5.0, "std": 0.0, "median": 5.0, "ci95_low": 5.0, "ci95_high": 5.0},
+            "p_value": {"mean": 0.3, "std": 0.0, "median": 0.3, "ci95_low": 0.3, "ci95_high": 0.3},
+            "significant_rate": 0.0,
+        },
+        "beta_parameters": {
+            "high_q": {
+                "alpha": {"mean": 1.0, "std": 0.0, "median": 1.0, "ci95_low": 1.0, "ci95_high": 1.0},
+                "beta": {"mean": 2.0, "std": 0.0, "median": 2.0, "ci95_low": 2.0, "ci95_high": 2.0},
+            },
+            "low_q": {
+                "alpha": {"mean": 1.5, "std": 0.0, "median": 1.5, "ci95_low": 1.5, "ci95_high": 1.5},
+                "beta": {"mean": 2.5, "std": 0.0, "median": 2.5, "ci95_low": 2.5, "ci95_high": 2.5},
+            },
+        },
+        "bootstrap_distributions": {
+            "ks_p_values": [0.2] * 5,
+            "ks_statistics": [0.1] * 5,
+            "mannwhitney_p_values": [0.3] * 5,
+            "mannwhitney_statistics": [5.0] * 5,
+            "alpha_high": [1.0] * 5,
+            "beta_high": [2.0] * 5,
+            "alpha_low": [1.5] * 5,
+            "beta_low": [2.5] * 5,
+        },
+    }
+
+    analyzer.save_results(
+        gmm_results,
+        beta_results,
+        classification_results,
+        output_dir=str(tmp_path),
+        bagged_beta_results=bagged_results,
+    )
 
     gmm_file = tmp_path / "gmm_summary.json"
     beta_file = tmp_path / "beta_e_params.csv"
     ks_file = tmp_path / "ks_test_e.txt"
+    bagging_summary_file = tmp_path / "beta_e_bootstrap_summary.json"
+    bagging_samples_file = tmp_path / "beta_e_bootstrap_distributions.csv"
 
     assert gmm_file.exists()
     assert beta_file.exists()
     assert ks_file.exists()
+    assert bagging_summary_file.exists()
+    assert bagging_samples_file.exists()
 
     with gmm_file.open() as f:
         data = json.load(f)
     assert data["best_n_components"] == 2
+
+    with bagging_summary_file.open() as f:
+        bagging_data = json.load(f)
+    assert bagging_data["n_bootstrap"] == 5
+    assert bagging_data["n_successful"] == 5
 
 
 def test_kozai_lidov_feasibility_single_success_case():

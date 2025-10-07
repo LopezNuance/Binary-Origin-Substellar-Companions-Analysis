@@ -163,6 +163,8 @@ $$
 with MLE via log-parametrization; uncertainty from nonparametric bootstrap (optional extension). A **KS two-sample test** compares the empirical CDFs.
 Deliverables: `beta_e_params.csv` (parameters), `ks_test_e.txt` (KS statistic, p-value).
 
+Every run now also performs a **bootstrap bagging** pass (default 500 resamples, 80% sampling fraction) on the eccentricity split. This reports the stability of the fitted Beta parameters and the KS/Mann–Whitney statistics: `beta_e_bootstrap_summary.json` captures aggregate moments and detection rates, while `beta_e_bootstrap_distributions.csv` stores the individual bootstrap draws for custom diagnostics.
+
 ### 6.3 Migration feasibility (KL + tides; plus a disk-torque sanity band)
 
 * **Kozai–Lidov timescale** (quadrupole, order-of-magnitude):

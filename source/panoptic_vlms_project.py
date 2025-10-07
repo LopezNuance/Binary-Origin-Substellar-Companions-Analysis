@@ -239,6 +239,18 @@ def perform_statistical_analysis(df, args):
     # Beta distribution analysis
     logger.info("\n2. Beta Distribution Analysis")
     beta_results = analyzer.beta_distribution_analysis(df)
+    bagged_beta_results = beta_results.get('bagging')
+    if bagged_beta_results and 'error' not in bagged_beta_results:
+        logger.info(
+            "Bagging summary: %s successful of %s bootstrap resamples",
+            bagged_beta_results.get('n_successful'),
+            bagged_beta_results.get('n_bootstrap')
+        )
+    elif bagged_beta_results:
+        logger.warning(
+            "Bagging encountered an issue: %s",
+            bagged_beta_results.get('error', 'unknown error')
+        )
 
     # Age-migration regression analysis
     logger.info("\n3. Age-Migration Regression Analysis")
@@ -250,7 +262,7 @@ def perform_statistical_analysis(df, args):
 
     # Save statistical results
     analyzer.save_results(gmm_results, beta_results, classification_results,
-                         args.outdir, age_regression_results)
+                         args.outdir, age_regression_results, bagged_beta_results)
 
     return gmm_results, beta_results, age_regression_results, classification_results
 
