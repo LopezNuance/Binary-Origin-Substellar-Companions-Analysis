@@ -355,6 +355,13 @@ class VLMSDataProcessor:
         if age_mask.any():
             result.loc[age_mask, 'log_host_age_gyr'] = np.log10(result.loc[age_mask, 'host_age_gyr'])
 
+        # Log age for scaling
+        result['log_host_age_gyr'] = np.log10(result['host_age_gyr'].replace(0, np.nan))
+
+        # Age-normalized orbital parameters (for systems with known ages)
+        age_mask = ~result['host_age_gyr'].isna() & (result['host_age_gyr'] > 0)
+
+
         if age_mask.any():
             # Estimate migration timescale proxy
             # Approximate tidal timescale scaling: t_tidal ∝ a^5
