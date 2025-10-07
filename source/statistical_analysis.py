@@ -506,6 +506,17 @@ class StatisticalAnalyzer:
                     bagged_beta_results: Optional[Dict[str, Any]] = None):
         """Save statistical analysis results to files"""
 
+        def _to_builtin(obj):
+            if isinstance(obj, np.generic):
+                return obj.item()
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            if isinstance(obj, dict):
+                return {k: _to_builtin(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_to_builtin(v) for v in obj]
+            return obj
+
         # Save GMM results
         gmm_summary = {
             'bic_scores': gmm_results.get('bic_scores', []),
@@ -515,7 +526,7 @@ class StatisticalAnalyzer:
         }
 
         with open(f"{output_dir}/gmm_summary.json", 'w') as f:
-            json.dump(gmm_summary, f, indent=2)
+            json.dump(_to_builtin(gmm_summary), f, indent=2)
         print(f"Saved GMM summary to {output_dir}/gmm_summary.json")
 
         # Save Beta distribution parameters
@@ -548,16 +559,6 @@ Mann-Whitney U Test:
             print(f"Saved statistical tests to {output_dir}/ks_test_e.txt")
 
         # Save bagged beta bootstrap summary and raw draws
-        def _to_builtin(obj):
-            if isinstance(obj, np.generic):
-                return obj.item()
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            if isinstance(obj, dict):
-                return {k: _to_builtin(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_to_builtin(v) for v in obj]
-            return obj
 
         effective_bagging = bagged_beta_results or beta_results.get('bagging')
         if effective_bagging:
@@ -582,7 +583,7 @@ Mann-Whitney U Test:
         if age_regression_results and 'error' not in age_regression_results:
             # Save regression summary as JSON
             with open(f"{output_dir}/age_regression_summary.json", 'w') as f:
-                json.dump(age_regression_results, f, indent=2)
+                json.dump(_to_builtin(age_regression_results), f, indent=2)
             print(f"Saved age regression results to {output_dir}/age_regression_summary.json")
 
             # Create detailed regression report
