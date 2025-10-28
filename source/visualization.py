@@ -327,6 +327,43 @@ class VLMSVisualizer:
         plt.close()
         print(f"Saved classification results to {output_file}")
 
+    def compose_migration_vs_kl(self, disk_png, kl_png, out_png):
+        """
+        Create side-by-side comparison of disk migration and KL feasibility
+
+        Parameters:
+        -----------
+        disk_png : str
+            Path to disk migration figure
+        kl_png : str
+            Path to KL feasibility figure
+        out_png : str
+            Output path for combined figure
+        """
+        import matplotlib.image as mpimg
+
+        # Load images
+        img_disk = mpimg.imread(disk_png)
+        img_kl = mpimg.imread(kl_png)
+
+        # Create composite figure
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6),
+                                      constrained_layout=True)
+
+        ax1.imshow(img_disk)
+        ax1.axis('off')
+        ax1.set_title("Disk Migration Timescales", fontsize=12)
+
+        ax2.imshow(img_kl)
+        ax2.axis('off')
+        ax2.set_title("Kozai-Lidov + Tides Feasibility", fontsize=12)
+
+        fig.suptitle("Inward Hardening Pathways for VLMS Companions",
+                    fontsize=14, fontweight='bold')
+
+        fig.savefig(out_png, dpi=200, bbox_inches='tight')
+        plt.close(fig)
+
 
 if __name__ == "__main__":
     # Test the visualizer

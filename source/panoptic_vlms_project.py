@@ -272,7 +272,12 @@ def create_feasibility_map(args):
     logger.info("CREATING KOZAI-LIDOV FEASIBILITY MAP")
     logger.info("=" * 60)
 
-    kl_analyzer = KozaiLidovAnalyzer(n_trials=2000)
+    kl_analyzer = KozaiLidovAnalyzer(
+        n_trials=2000,
+        inner_a0_AU=args.kl_a0,
+        horizon_Gyr=args.kl_horizon_gyr,
+        rpcrit_Rs=args.rpcrit_Rs
+    )
     feasibility_results = kl_analyzer.create_feasibility_map(
         perturber_mass_range=(0.1, 1.0),
         perturber_sep_range=(10, 1000),
@@ -593,6 +598,42 @@ Examples:
     parser.add_argument('--toi_age_gyr', type=float, default=None,
                        help='TOI-6894 system age (Gyr, optional)')
 
+    # Disk migration parameters
+    parser.add_argument("--disk-panel", action="store_true",
+                       help="Render disk-migration timescale panel alongside KL")
+    parser.add_argument("--disk-lifetime-myr", type=float, default=3.0,
+                       help="Target disk lifetime for feasible migration (Myr)")
+    parser.add_argument("--a0-min", type=float, default=0.3,
+                       help="Minimum birth a0 (AU) to sweep in disk panel")
+    parser.add_argument("--a0-max", type=float, default=1.0,
+                       help="Maximum birth a0 (AU) to sweep in disk panel")
+    parser.add_argument("--Sigma1AU", type=float, default=300.0,
+                       help="Gas surface density at 1 AU (g/cm^2) for VLMS disk")
+    parser.add_argument("--p-sigma", type=float, default=1.0,
+                       help="Surface-density power-law: Sigma ~ a^{-p}")
+    parser.add_argument("--H-over-a", type=float, default=0.04,
+                       help="Disk aspect ratio H/a")
+    parser.add_argument("--alpha", type=float, default=3e-3,
+                       help="Viscosity parameter for gap-opening check")
+
+    # Enhanced KL parameters
+    parser.add_argument("--kl-a0", type=float, default=0.5,
+                       help="Birth inner a0 (AU) used by KL feasibility map")
+    parser.add_argument("--kl-horizon-gyr", type=float, default=3.0,
+                       help="Time horizon (Gyr) for KL+tides feasibility")
+    parser.add_argument("--rpcrit-Rs", type=float, default=3.0,
+                       help="Critical periastron in stellar radii")
+
+    # System-level analysis flags
+    parser.add_argument("--build-systems", action="store_true",
+                       help="Aggregate per-companion tables into system-level rows")
+    parser.add_argument("--sb-csv", type=str, default=None,
+                       help="Path to CSV of close VLMS stellar binaries")
+    parser.add_argument("--regimes", action="store_true",
+                       help="Run HDBSCAN+GMM clustering and segmented regression")
+    parser.add_argument("--msr", action="store_true",
+                       help="Run 2-regime mixture of linear regressions")
+
     # Output options
     parser.add_argument('--outdir', type=str, default='out',
                        help='Output directory (default: out)')
@@ -690,6 +731,61 @@ Examples:
 
         # Additional plots
         create_additional_plots(final_data, gmm_results, classification_results, args)
+
+        # Build system-level table if requested
+        if args.build_systems:
+            from system_schema import build_system_table
+            systems = build_system_table(
+                nasa_csv=os.path.join(args.outdir, "pscomppars_lowM.csv"),
+                bd_csv=os.path.join(args.outdir, "BD_catalogue.csv"),
+                sb_csv=args.sb_csv,  # Optional stellar binary file
+                out_csv=os.path.join(args.outdir, "combined_systems.csv")
+            )
+            logger.info(f"Built system table with {len(systems)} systems")
+
+        # Run regime discovery if requested
+        if args.regimes:
+            from analysis.regime_clustering import run_hdbscan_and_gmm
+            from analysis.segmented_trend import run_segmented_plot
+
+            logger.info("Running regime discovery analysis...")
+
+            labels_df, bic_info = run_hdbscan_and_gmm(
+                systems_csv=os.path.join(args.outdir, "combined_systems.csv"),
+                out_prefix=os.path.join(args.outdir, "regimes")
+            )
+
+            seg_summary = run_segmented_plot(
+                systems_csv=os.path.join(args.outdir, "combined_systems.csv"),
+                out_png=os.path.join(args.outdir, "segmented_logq_loga.png")
+            )
+
+            logger.info(f"Regime discovery complete. Best GMM K={bic_info['K_best']}")
+            if seg_summary['break_supported']:
+                logger.info(f"Segmented regression found break at log q={seg_summary['break_logq']:.2f}")
+
+        # Run disk migration analysis if requested
+        if args.disk_panel:
+            from disk_migration import render_disk_panel
+
+            logger.info("Computing disk migration timescales...")
+
+            # Use TOI-6894b parameters or default system parameters
+            host_mass = 0.08  # Default VLMS mass
+            comp_mass = 0.30  # Default companion mass in Mj
+
+            disk_png = os.path.join(args.outdir, "fig3_disk.png")
+            Z = render_disk_panel(disk_png, host_mass, comp_mass, args)
+            logger.info(f"Disk migration panel saved to {disk_png}")
+
+            # Optionally combine with KL panel if it exists
+            kl_png = os.path.join(args.outdir, "fig3_feasibility.png")
+            if os.path.exists(kl_png):
+                from visualization import VLMSVisualizer
+                viz = VLMSVisualizer()
+                combo_png = os.path.join(args.outdir, "fig3_migration_vs_KL.png")
+                viz.compose_migration_vs_kl(disk_png, kl_png, combo_png)
+                logger.info(f"Combined figure saved to {combo_png}")
 
         # Save object probabilities
         save_object_probabilities(final_data, classification_results, args)

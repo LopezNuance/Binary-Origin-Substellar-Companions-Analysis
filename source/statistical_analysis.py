@@ -1018,8 +1018,16 @@ def kozai_lidov_feasibility_with_age(M_star, M_comp, a_inner, e_inner,
 class KozaiLidovAnalyzer:
     """Perform Kozai-Lidov + tides feasibility analysis"""
 
-    def __init__(self, n_trials: int = 1000):
+    def __init__(self, n_trials: int = 1000,
+                 inner_a0_AU: Optional[float] = None,  # NEW: birth radius parameter
+                 horizon_Gyr: Optional[float] = None,  # NEW: time horizon
+                 rpcrit_Rs: Optional[float] = None):   # NEW: tidal radius threshold
         self.n_trials = n_trials
+
+        # Use new parameters if provided, else defaults
+        self.inner_a0_AU = inner_a0_AU if inner_a0_AU is not None else 1.0
+        self.horizon_Gyr = horizon_Gyr if horizon_Gyr is not None else 1.0
+        self.rpcrit_Rs = rpcrit_Rs if rpcrit_Rs is not None else 3.0
 
     def create_feasibility_map(self, perturber_mass_range: tuple = (0.1, 1.0),
                               perturber_sep_range: tuple = (10, 1000),
@@ -1058,7 +1066,7 @@ class KozaiLidovAnalyzer:
         # TOI-6894b-like system parameters
         M_star = 0.08  # Solar masses
         M_comp = 0.3 / 1047.6  # Jupiter to solar masses
-        a_initial = 1.0  # Start at ~1 AU
+        a_initial = self.inner_a0_AU  # Use configurable birth radius
 
         # Grid search
         for i, M_pert in enumerate(mass_grid):
@@ -1073,7 +1081,8 @@ class KozaiLidovAnalyzer:
 
                     # Test if this configuration can migrate to target
                     if kozai_lidov_feasibility_single(M_star, M_comp, a_initial, e_inner,
-                                                    M_pert, a_pert, e_outer):
+                                                    M_pert, a_pert, e_outer,
+                                                    target_a=0.05, t_max_gyr=self.horizon_Gyr):
                         successes += 1
 
                 feasibility_map[i, j] = successes / self.n_trials
