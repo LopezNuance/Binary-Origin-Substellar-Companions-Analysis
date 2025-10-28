@@ -25,7 +25,7 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
 
 # Import our modules
-from data_fetchers import NASAExoplanetArchiveFetcher, BrownDwarfCatalogueFetcher, load_local_data
+from data_fetchers import NASAExoplanetArchiveFetcher, BrownDwarfCatalogueFetcher, GaiaDR3NSSFetcher, load_local_data
 from data_processor import VLMSDataProcessor
 from visualization import VLMSVisualizer
 from statistical_analysis import StatisticalAnalyzer, KozaiLidovAnalyzer
@@ -125,49 +125,75 @@ def count_candidates(min_stellar_mass: float = 0.06, max_stellar_mass: float = 0
     return total_candidates
 
 def fetch_data(args):
-    """Fetch data from online sources"""
+    """Fetch data from all online sources including Gaia DR3 NSS"""
     logger.info("=" * 60)
     logger.info("FETCHING DATA FROM ONLINE SOURCES")
     logger.info("=" * 60)
 
     # NASA Exoplanet Archive
-    nasa_fetcher = NASAExoplanetArchiveFetcher()
-    nasa_data = nasa_fetcher.fetch_vlms_companions(
-        min_stellar_mass=0.06, max_stellar_mass=0.20
-    )
-    nasa_file = os.path.join(args.outdir, "pscomppars_lowM.csv")
-    nasa_fetcher.save_data(nasa_data, nasa_file)
+    nasa_data = pd.DataFrame()
+    if not getattr(args, 'skip_nasa', False):
+        nasa_fetcher = NASAExoplanetArchiveFetcher()
+        nasa_data = nasa_fetcher.fetch_vlms_companions(
+            min_stellar_mass=0.06, max_stellar_mass=0.20
+        )
+        nasa_file = os.path.join(args.outdir, "pscomppars_lowM.csv")
+        nasa_fetcher.save_data(nasa_data, nasa_file)
 
     # Brown Dwarf Catalogue
-    bd_fetcher = BrownDwarfCatalogueFetcher()
-    bd_data = bd_fetcher.fetch_catalogue()
-    bd_filtered = bd_fetcher.filter_vlms_hosts(bd_data, 0.06, 0.20)
-    bd_file = os.path.join(args.outdir, "BD_catalogue.csv")
-    bd_fetcher.save_data(bd_filtered, bd_file)
+    bd_data = pd.DataFrame()
+    if not getattr(args, 'skip_bd', False):
+        bd_fetcher = BrownDwarfCatalogueFetcher()
+        bd_data = bd_fetcher.fetch_catalogue()
+        bd_filtered = bd_fetcher.filter_vlms_hosts(bd_data, 0.06, 0.20)
+        bd_file = os.path.join(args.outdir, "BD_catalogue.csv")
+        bd_fetcher.save_data(bd_filtered, bd_file)
+    else:
+        bd_filtered = bd_data
 
-    return nasa_data, bd_filtered
+    # Gaia DR3 NSS (new!)
+    gaia_data = pd.DataFrame()
+    if not getattr(args, 'skip_gaia', False):
+        try:
+            gaia_fetcher = GaiaDR3NSSFetcher()
+            gaia_data = gaia_fetcher.fetch_nss_companions(parallax_min=0.1)
+            gaia_file = os.path.join(args.outdir, "gaia_nss_vlms.csv")
+            gaia_fetcher.save_data(gaia_data, gaia_file)
+        except Exception as e:
+            logger.error(f"Error fetching Gaia NSS data: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Exception details: {str(e)}")
+            if hasattr(e, '__traceback__'):
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.warning("Continuing analysis without Gaia outer perturber data")
 
-def sample_data(nasa_data, bd_data, percentage: float):
+    return nasa_data, bd_filtered, gaia_data
+
+def sample_data(nasa_data, bd_data, gaia_data, percentage: float):
     """Sample a percentage of the combined dataset"""
     if percentage >= 100:
-        return nasa_data, bd_data
+        return nasa_data, bd_data, gaia_data
 
     # Calculate sample sizes
     nasa_sample_size = int(len(nasa_data) * percentage / 100) if len(nasa_data) > 0 else 0
     bd_sample_size = int(len(bd_data) * percentage / 100) if len(bd_data) > 0 else 0
+    gaia_sample_size = int(len(gaia_data) * percentage / 100) if len(gaia_data) > 0 else 0
 
     # Sample the data
     nasa_sampled = nasa_data.sample(n=nasa_sample_size, random_state=42) if nasa_sample_size > 0 else nasa_data
     bd_sampled = bd_data.sample(n=bd_sample_size, random_state=42) if bd_sample_size > 0 else bd_data
+    gaia_sampled = gaia_data.sample(n=gaia_sample_size, random_state=42) if gaia_sample_size > 0 else gaia_data
 
     print(f"Sampled {len(nasa_sampled)} NASA entries ({nasa_sample_size}/{len(nasa_data)})")
     print(f"Sampled {len(bd_sampled)} BD entries ({bd_sample_size}/{len(bd_data)})")
-    print(f"Total sampled: {len(nasa_sampled) + len(bd_sampled)} ({percentage}% of original)")
+    print(f"Sampled {len(gaia_sampled)} Gaia NSS entries ({gaia_sample_size}/{len(gaia_data)})")
+    print(f"Total sampled: {len(nasa_sampled) + len(bd_sampled) + len(gaia_sampled)} ({percentage}% of original)")
 
-    return nasa_sampled, bd_sampled
+    return nasa_sampled, bd_sampled, gaia_sampled
 
-def process_data(nasa_data, bd_data, args):
-    """Process and combine datasets"""
+def process_data(nasa_data, bd_data, gaia_data, args):
+    """Process and combine all datasets including Gaia NSS"""
     logger.info("\n" + "=" * 60)
     logger.info("PROCESSING AND COMBINING DATASETS")
     logger.info("=" * 60)
@@ -177,9 +203,10 @@ def process_data(nasa_data, bd_data, args):
     # Process individual datasets
     nasa_processed = processor.process_nasa_data(nasa_data)
     bd_processed = processor.process_bd_data(bd_data)
+    gaia_processed = processor.process_gaia_nss_data(gaia_data) if not gaia_data.empty else pd.DataFrame()
 
-    # Combine datasets
-    combined = processor.combine_datasets(nasa_processed, bd_processed)
+    # Combine datasets (Gaia cross-matching happens inside combine_datasets)
+    combined = processor.combine_datasets(nasa_processed, bd_processed, gaia_processed)
 
     # Compute derived quantities
     final_data = processor.compute_derived_quantities(combined)
@@ -266,8 +293,8 @@ def perform_statistical_analysis(df, args):
 
     return gmm_results, beta_results, age_regression_results, classification_results
 
-def create_feasibility_map(args):
-    """Create Kozai-Lidov feasibility map"""
+def create_feasibility_map(df, args):
+    """Create Kozai-Lidov feasibility map and analyze real perturber systems"""
     logger.info("\n" + "=" * 60)
     logger.info("CREATING KOZAI-LIDOV FEASIBILITY MAP")
     logger.info("=" * 60)
@@ -278,6 +305,8 @@ def create_feasibility_map(args):
         horizon_Gyr=args.kl_horizon_gyr,
         rpcrit_Rs=args.rpcrit_Rs
     )
+
+    # Create synthetic feasibility map
     feasibility_results = kl_analyzer.create_feasibility_map(
         perturber_mass_range=(0.1, 1.0),
         perturber_sep_range=(10, 1000),
@@ -285,9 +314,31 @@ def create_feasibility_map(args):
         n_sep_points=25
     )
 
+    # Analyze real perturber systems if available
+    real_perturber_results = kl_analyzer.analyze_real_perturber_systems(df)
+
+    # Compare synthetic vs real feasibility
+    if real_perturber_results['n_systems'] > 0:
+        comparison_results = kl_analyzer.compare_synthetic_vs_real_feasibility(
+            feasibility_results, real_perturber_results
+        )
+        # Save comparison results
+        comparison_file = os.path.join(args.outdir, "feasibility_comparison.json")
+        import json
+        with open(comparison_file, 'w') as f:
+            json.dump(comparison_results, f, indent=2, default=str)
+        logger.info(f"Saved feasibility comparison to {comparison_file}")
+
     # Save feasibility map
     feasibility_file = os.path.join(args.outdir, "feasibility_map.npz")
     kl_analyzer.save_feasibility_map(feasibility_results, feasibility_file)
+
+    # Save real perturber analysis results
+    if real_perturber_results['n_systems'] > 0:
+        real_perturber_file = os.path.join(args.outdir, "real_perturber_analysis.json")
+        with open(real_perturber_file, 'w') as f:
+            json.dump(real_perturber_results, f, indent=2, default=str)
+        logger.info(f"Saved real perturber analysis to {real_perturber_file}")
 
     # Create Figure 3
     viz = VLMSVisualizer()
@@ -459,7 +510,13 @@ def create_summary_report(df, gmm_results, beta_results, age_regression_results,
         f.write(f"  Brown Dwarf Catalogue: {len(df[df['data_source'] == 'BD_Catalogue'])}\n")
         f.write(f"  TOI-6894b: {len(df[df['data_source'] == 'TOI'])}\n")
         f.write(f"  Above deuterium limit (13 MJ): {df['above_deuterium_limit'].sum()}\n")
-        f.write(f"  High mass ratio objects: {df['high_mass_ratio'].sum()}\n\n")
+        f.write(f"  High mass ratio objects: {df['high_mass_ratio'].sum()}\n")
+
+        # Gaia outer perturber information
+        if 'has_outer_perturber' in df.columns:
+            n_with_perturbers = df['has_outer_perturber'].sum()
+            f.write(f"  Systems with Gaia outer perturber detections: {n_with_perturbers}\n")
+        f.write("\n")
 
         # GMM results
         f.write("GAUSSIAN MIXTURE MODEL ANALYSIS:\n")
@@ -570,17 +627,25 @@ Examples:
         """
     )
 
-    # Data source options
-    data_group = parser.add_mutually_exclusive_group(required=False)
-    data_group.add_argument('--fetch', action='store_true',
-                          help='Fetch fresh data from online sources')
-    data_group.add_argument('--ps', type=str,
-                          help='Path to local NASA PSCompPars CSV file')
-    data_group.add_argument('--count-candidates', action='store_true',
-                          help='Report number of candidates from online sources and wait for user input')
+    # Data source scope limiters (by default, all sources are fetched)
+    parser.add_argument('--skip-nasa', action='store_true',
+                       help='Skip NASA Exoplanet Archive data (scope limiter)')
+    parser.add_argument('--skip-bd', action='store_true',
+                       help='Skip Brown Dwarf Catalogue data (scope limiter)')
+    parser.add_argument('--skip-gaia', action='store_true',
+                       help='Skip Gaia DR3 NSS outer perturber data (scope limiter)')
 
+    # Local file options (override online fetching)
+    parser.add_argument('--ps', type=str,
+                       help='Use local NASA PSCompPars CSV file instead of fetching')
     parser.add_argument('--bd', type=str,
-                       help='Path to local Brown Dwarf Catalogue CSV file (required with --ps)')
+                       help='Use local Brown Dwarf Catalogue CSV file instead of fetching')
+    parser.add_argument('--gaia', type=str,
+                       help='Use local Gaia NSS CSV file instead of fetching')
+
+    # Special modes
+    parser.add_argument('--count-candidates', action='store_true',
+                       help='Report number of candidates and wait for user input')
 
     # New percentage argument for non-interactive mode
     parser.add_argument('--percent', type=float, metavar='N',
@@ -652,14 +717,18 @@ Examples:
     args = parser.parse_args()
 
     # Validate arguments
-    if not args.fetch and not args.count_candidates and args.ps is None:
-        parser.error('Must specify --fetch, --count-candidates, or --ps')
-    if args.ps and args.bd is None:
-        parser.error('--bd is required when using --ps')
     if args.percent is not None and (args.percent < 0 or args.percent > 100):
         parser.error('--percent must be between 0 and 100')
     if args.count_candidates and args.percent is not None:
         parser.error('--count-candidates and --percent cannot be used together')
+
+    # Determine data loading mode
+    use_local_files = args.ps is not None or args.bd is not None or args.gaia is not None
+    if not use_local_files:
+        # Default: fetch all data online (unless scope-limited)
+        args.fetch_mode = True
+    else:
+        args.fetch_mode = False
 
     # Setup
     setup_logging(args)
@@ -667,6 +736,11 @@ Examples:
     logger.info(f"Starting VLMS analysis at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     try:
+        # Initialize empty datasets
+        nasa_data = pd.DataFrame()
+        bd_data = pd.DataFrame()
+        gaia_data = pd.DataFrame()
+
         # Handle count-candidates mode (interactive)
         if args.count_candidates:
             candidate_count = count_candidates()
@@ -691,34 +765,54 @@ Examples:
                 except ValueError:
                     print("Please enter a valid number or 'exit'.")
 
-            # Now fetch and process the data with the specified percentage
-            args.fetch = True  # Override to fetch data
-            nasa_data, bd_data = fetch_data(args)
-            nasa_data, bd_data = sample_data(nasa_data, bd_data, percentage)
+            # Fetch and process data with specified percentage
+            nasa_data, bd_data, gaia_data = fetch_data(args)
+            nasa_data, bd_data, gaia_data = sample_data(nasa_data, bd_data, gaia_data, percentage)
 
         # Data acquisition
-        elif args.fetch:
-            nasa_data, bd_data = fetch_data(args)
+        elif args.fetch_mode:
+            # Default mode: fetch from online sources
+            nasa_data, bd_data, gaia_data = fetch_data(args)
             # Apply percentage sampling if specified
             if args.percent is not None:
-                nasa_data, bd_data = sample_data(nasa_data, bd_data, args.percent)
+                nasa_data, bd_data, gaia_data = sample_data(nasa_data, bd_data, gaia_data, args.percent)
         else:
+            # Local file mode
             logger.info("Loading local data files...")
-            data_results = load_local_data(args.ps, args.bd)
-            nasa_data, bd_data = data_results["nasa_df"], data_results["bd_df"]
+
+            # Load NASA data
+            if args.ps and not args.skip_nasa:
+                data_results = load_local_data(args.ps, None)
+                nasa_data = data_results["nasa_df"]
+
+            # Load BD data
+            if args.bd and not args.skip_bd:
+                data_results = load_local_data(None, args.bd)
+                bd_data = data_results["bd_df"]
+
+            # Load Gaia data
+            if args.gaia and not args.skip_gaia:
+                try:
+                    gaia_data = pd.read_csv(args.gaia)
+                    logger.info(f"Loaded {len(gaia_data)} entries from local Gaia file: {args.gaia}")
+                except Exception as e:
+                    logger.error(f"Error loading Gaia file {args.gaia}: {e}")
+                    logger.error(f"Exception type: {type(e).__name__}")
+                    logger.error(f"Exception details: {str(e)}")
+                    if hasattr(e, '__traceback__'):
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                    logger.warning("Continuing without Gaia NSS data")
+
             # Apply percentage sampling if specified
             if args.percent is not None:
-                nasa_data, bd_data = sample_data(nasa_data, bd_data, args.percent)
+                nasa_data, bd_data, gaia_data = sample_data(nasa_data, bd_data, gaia_data, args.percent)
 
             if nasa_data.empty and bd_data.empty:
-                raise ValueError("No data could be loaded from either source file")
-            elif nasa_data.empty:
-                logger.warning("No NASA data loaded, proceeding with Brown Dwarf data only")
-            elif bd_data.empty:
-                logger.warning("No Brown Dwarf data loaded, proceeding with NASA data only")
+                logger.warning("No NASA or BD data loaded - analysis will be limited")
 
         # Data processing
-        final_data = process_data(nasa_data, bd_data, args)
+        final_data = process_data(nasa_data, bd_data, gaia_data, args)
 
         # Visualizations
         fig1_path, fig2_path = create_visualizations(final_data, args)
@@ -727,7 +821,7 @@ Examples:
         gmm_results, beta_results, age_regression_results, classification_results = perform_statistical_analysis(final_data, args)
 
         # Feasibility mapping
-        feasibility_results, fig3_path = create_feasibility_map(args)
+        feasibility_results, fig3_path = create_feasibility_map(final_data, args)
 
         # Additional plots
         create_additional_plots(final_data, gmm_results, classification_results, args)

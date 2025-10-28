@@ -1186,6 +1186,155 @@ class KozaiLidovAnalyzer:
 
         return results
 
+    def analyze_real_perturber_systems(self, df: pd.DataFrame) -> dict:
+        """
+        Analyze feasibility for systems with real Gaia-detected outer perturbers
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            Dataset with outer perturber properties from Gaia cross-match
+
+        Returns:
+        --------
+        dict with real perturber analysis results
+        """
+
+        print("Analyzing systems with real Gaia-detected outer perturbers...")
+
+        # Filter for systems with outer perturber data
+        perturber_systems = df[df.get('has_outer_perturber', False)].copy()
+
+        if perturber_systems.empty:
+            print("No systems with outer perturber detections found")
+            return {'n_systems': 0, 'feasibility_results': []}
+
+        print(f"Found {len(perturber_systems)} systems with outer perturber detections")
+
+        results = []
+        n_feasible = 0
+
+        for idx, row in perturber_systems.iterrows():
+            # System parameters
+            M_star = row['host_mass_msun']
+            M_comp = row['companion_mass_msun']
+            a_inner = row['semimajor_axis_au']
+            e_inner = row.get('eccentricity', 0.0)
+
+            # Outer perturber parameters
+            M_pert = row.get('outer_perturber_mass_msun', 0.5)  # Default if missing
+            a_pert = row.get('estimated_outer_sma_au', 1000.0)  # Default if missing
+
+            # System age for time-limited analysis
+            age_gyr = row.get('host_age_gyr', self.horizon_Gyr)
+
+            # Test multiple eccentricity scenarios for outer orbit
+            feasibility_scores = []
+            for e_outer in [0.0, 0.2, 0.4, 0.6]:
+                successes = 0
+                for trial in range(100):  # Reduced trials per system
+                    # Test if current configuration could have migrated from ~1 AU
+                    if kozai_lidov_feasibility_single(M_star, M_comp, 1.0, e_inner,
+                                                    M_pert, a_pert, e_outer,
+                                                    target_a=a_inner, t_max_gyr=age_gyr):
+                        successes += 1
+
+                feasibility_scores.append(successes / 100.0)
+
+            # Take maximum feasibility across eccentricity scenarios
+            max_feasibility = max(feasibility_scores)
+            is_feasible = max_feasibility > 0.1  # 10% threshold for "feasible"
+
+            if is_feasible:
+                n_feasible += 1
+
+            system_result = {
+                'system_name': row.get('companion_name', f'System_{idx}'),
+                'host_mass': M_star,
+                'companion_mass_mjup': row['companion_mass_mjup'],
+                'inner_sma_au': a_inner,
+                'perturber_mass': M_pert,
+                'perturber_sma_au': a_pert,
+                'system_age_gyr': age_gyr,
+                'max_feasibility': max_feasibility,
+                'is_feasible': is_feasible,
+                'feasibility_by_e_outer': feasibility_scores
+            }
+
+            results.append(system_result)
+
+        analysis_summary = {
+            'n_systems': len(perturber_systems),
+            'n_feasible': n_feasible,
+            'feasible_fraction': n_feasible / len(perturber_systems),
+            'feasibility_results': results
+        }
+
+        print(f"Real perturber analysis complete:")
+        print(f"  {n_feasible}/{len(perturber_systems)} systems show feasible migration")
+        print(f"  Feasible fraction: {analysis_summary['feasible_fraction']:.3f}")
+
+        return analysis_summary
+
+    def compare_synthetic_vs_real_feasibility(self, synthetic_results: dict,
+                                            real_results: dict) -> dict:
+        """
+        Compare feasibility results from synthetic grid vs real perturber systems
+
+        Parameters:
+        -----------
+        synthetic_results : dict
+            Results from create_feasibility_map
+        real_results : dict
+            Results from analyze_real_perturber_systems
+
+        Returns:
+        --------
+        dict with comparison metrics
+        """
+
+        print("Comparing synthetic vs real perturber feasibility...")
+
+        # Synthetic map statistics
+        synth_map = synthetic_results['feasibility_map']
+        synth_max = np.max(synth_map)
+        synth_mean = np.mean(synth_map)
+        synth_feasible_fraction = np.sum(synth_map > 0.1) / synth_map.size
+
+        # Real system statistics
+        if real_results['n_systems'] > 0:
+            real_feasibilities = [r['max_feasibility'] for r in real_results['feasibility_results']]
+            real_max = max(real_feasibilities)
+            real_mean = np.mean(real_feasibilities)
+            real_feasible_fraction = real_results['feasible_fraction']
+        else:
+            real_max = real_mean = real_feasible_fraction = 0.0
+
+        comparison = {
+            'synthetic_stats': {
+                'max_feasibility': synth_max,
+                'mean_feasibility': synth_mean,
+                'feasible_fraction': synth_feasible_fraction
+            },
+            'real_stats': {
+                'max_feasibility': real_max,
+                'mean_feasibility': real_mean,
+                'feasible_fraction': real_feasible_fraction,
+                'n_systems': real_results['n_systems']
+            },
+            'comparison_ratios': {
+                'max_ratio': real_max / synth_max if synth_max > 0 else 0.0,
+                'mean_ratio': real_mean / synth_mean if synth_mean > 0 else 0.0,
+                'fraction_ratio': real_feasible_fraction / synth_feasible_fraction if synth_feasible_fraction > 0 else 0.0
+            }
+        }
+
+        print(f"Feasibility comparison:")
+        print(f"  Synthetic grid - Max: {synth_max:.3f}, Mean: {synth_mean:.3f}, Feasible: {synth_feasible_fraction:.3f}")
+        print(f"  Real systems - Max: {real_max:.3f}, Mean: {real_mean:.3f}, Feasible: {real_feasible_fraction:.3f}")
+
+        return comparison
+
 
 if __name__ == "__main__":
     # Test the statistical analyzer

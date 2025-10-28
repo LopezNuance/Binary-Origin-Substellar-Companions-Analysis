@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 import warnings
+from data_fetchers import cross_match_coordinates
 
 
 JUPITER_TO_EARTH = 317.828
@@ -157,9 +158,136 @@ class VLMSDataProcessor:
         print(f"Processed {len(processed)} Brown Dwarf entries for VLMS hosts")
         return processed
 
-    def combine_datasets(self, nasa_df: pd.DataFrame, bd_df: pd.DataFrame) -> pd.DataFrame:
+    def process_gaia_nss_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Combine NASA and Brown Dwarf datasets
+        Process Gaia DR3 NSS data for outer perturber analysis
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            Raw Gaia NSS data
+
+        Returns:
+        --------
+        pd.DataFrame with standardized columns for perturber analysis
+        """
+
+        processed = df.copy()
+
+        # Standardize column names for outer perturber properties
+        column_mapping = {
+            'source_id': 'gaia_source_id',
+            'stellar_mass_msun': 'host_mass_msun',
+            'mass_flame': 'host_mass_flame',
+            'age_flame': 'host_age_gyr',
+            'teff_gspphot': 'host_teff_k',
+            'mh_gspphot': 'metallicity',
+            'distance_pc': 'distance_pc'
+        }
+
+        # Rename columns
+        for old_col, new_col in column_mapping.items():
+            if old_col in processed.columns:
+                processed[new_col] = processed[old_col]
+
+        # Convert age from Myr to Gyr if needed (Gaia typically reports in Myr)
+        if 'host_age_gyr' in processed.columns:
+            age_values = processed['host_age_gyr']
+            # If ages are very large (>100), likely in Myr
+            if age_values.median() > 100:
+                processed['host_age_gyr'] = age_values / 1000.0
+
+        # Filter for VLMS hosts
+        if 'host_mass_msun' in processed.columns:
+            mask = ((processed['host_mass_msun'] >= self.min_stellar_mass) &
+                   (processed['host_mass_msun'] <= self.max_stellar_mass))
+            processed = processed[mask].copy()
+
+        # Add flags for NSS properties
+        processed['has_nss_companion'] = True
+        processed['data_source'] = 'Gaia_NSS'
+
+        print(f"Processed {len(processed)} Gaia NSS entries for VLMS hosts")
+        return processed
+
+    def cross_match_with_gaia(self, primary_df: pd.DataFrame, gaia_df: pd.DataFrame,
+                             max_sep_arcsec: float = 5.0) -> pd.DataFrame:
+        """
+        Cross-match primary catalog (NASA/BD) with Gaia NSS data
+
+        Parameters:
+        -----------
+        primary_df : pd.DataFrame
+            Primary catalog (NASA or BD processed data)
+        gaia_df : pd.DataFrame
+            Processed Gaia NSS data
+        max_sep_arcsec : float
+            Maximum separation for cross-match in arcseconds
+
+        Returns:
+        --------
+        pd.DataFrame with cross-matched systems including outer perturber info
+        """
+
+        # Check if coordinate columns exist in primary catalog
+        coord_cols = ['ra', 'dec']
+        if not all(col in primary_df.columns for col in coord_cols):
+            print("Warning: No coordinate data in primary catalog for Gaia cross-match")
+            return primary_df
+
+        # Perform cross-match
+        matched_df = cross_match_coordinates(
+            primary_df, gaia_df,
+            ra1_col='ra', dec1_col='dec',
+            ra2_col='ra', dec2_col='dec',
+            max_sep_arcsec=max_sep_arcsec
+        )
+
+        if matched_df.empty:
+            print("No cross-matches found with Gaia NSS data")
+            return primary_df
+
+        # Add outer perturber properties to the matched systems
+        # Rename Gaia columns to indicate they're outer perturber properties
+        gaia_cols_to_rename = {
+            'host_mass_msun_gaia': 'outer_perturber_mass_msun',
+            'distance_pc_gaia': 'outer_perturber_distance_pc',
+            'parallax_gaia': 'outer_perturber_parallax',
+            'gaia_source_id_gaia': 'outer_perturber_gaia_id',
+            'host_teff_k_gaia': 'outer_perturber_teff_k',
+            'metallicity_gaia': 'outer_perturber_metallicity'
+        }
+
+        for old_col, new_col in gaia_cols_to_rename.items():
+            if old_col in matched_df.columns:
+                matched_df[new_col] = matched_df[old_col]
+
+        # Flag systems with detected outer perturbers
+        matched_df['has_outer_perturber'] = True
+
+        # Create final dataset combining matched and unmatched systems
+        unmatched_mask = ~primary_df.index.isin(matched_df.index)
+        unmatched_df = primary_df[unmatched_mask].copy()
+        unmatched_df['has_outer_perturber'] = False
+
+        # Add empty outer perturber columns to unmatched systems
+        for new_col in gaia_cols_to_rename.values():
+            if new_col in matched_df.columns:
+                unmatched_df[new_col] = np.nan
+
+        # Combine matched and unmatched
+        final_df = pd.concat([matched_df, unmatched_df], ignore_index=True)
+
+        n_matched = matched_df.shape[0]
+        n_total = final_df.shape[0]
+        print(f"Cross-match complete: {n_matched}/{n_total} systems have outer perturber detections")
+
+        return final_df
+
+    def combine_datasets(self, nasa_df: pd.DataFrame, bd_df: pd.DataFrame,
+                        gaia_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+        """
+        Combine NASA, Brown Dwarf, and optionally Gaia NSS datasets
 
         Parameters:
         -----------
@@ -167,6 +295,8 @@ class VLMSDataProcessor:
             Processed NASA data
         bd_df : pd.DataFrame
             Processed Brown Dwarf data
+        gaia_df : pd.DataFrame, optional
+            Processed Gaia NSS data
 
         Returns:
         --------
@@ -196,10 +326,13 @@ class VLMSDataProcessor:
                         _df.loc[missing_mask, 'companion_mass_mjup'] * JUPITER_TO_EARTH
                     )
 
-        # Combine while preserving the full union of feature columns so downstream
-        # analyses (e.g. metallicity, discovery method) remain available even when
-        # supplied by only one catalogue.
+        # Combine primary datasets
         combined = pd.concat([nasa_clean, bd_clean], ignore_index=True, sort=False)
+
+        # Cross-match with Gaia NSS if available
+        if gaia_df is not None and not gaia_df.empty:
+            print("Cross-matching with Gaia NSS data...")
+            combined = self.cross_match_with_gaia(combined, gaia_df)
 
         # Move the core analysis columns to the front for readability
         primary_cols = required_cols + [col for col in combined.columns if col not in required_cols]
@@ -208,6 +341,9 @@ class VLMSDataProcessor:
         print(f"Combined dataset: {len(combined)} total entries")
         print(f"  NASA: {len(nasa_clean)} entries")
         print(f"  Brown Dwarf: {len(bd_clean)} entries")
+        if gaia_df is not None:
+            n_with_perturbers = combined.get('has_outer_perturber', pd.Series(False)).sum()
+            print(f"  With outer perturber detections: {n_with_perturbers} entries")
 
         return combined
 
@@ -262,9 +398,31 @@ class VLMSDataProcessor:
         q_threshold = 0.01  # 1% mass ratio
         result['high_mass_ratio'] = result['mass_ratio'] >= q_threshold
 
+        # Add outer perturber analysis features
+        if 'has_outer_perturber' in result.columns and 'outer_perturber_mass_msun' in result.columns:
+            # Compute perturber-to-host mass ratio for KL analysis
+            result['perturber_host_mass_ratio'] = (
+                result['outer_perturber_mass_msun'] / result['host_mass_msun']
+            )
+
+            # Estimate outer perturber semi-major axis from distance and projected separation
+            # This is rough - real orbital analysis would need proper astrometry
+            if 'outer_perturber_distance_pc' in result.columns:
+                # Assume median projected separation of ~1000 AU for wide binaries
+                result['estimated_outer_sma_au'] = 1000.0  # Placeholder - needs proper astrometric solution
+
+            # Flag systems suitable for KL analysis (have detected outer perturber)
+            result['suitable_for_kl_analysis'] = result['has_outer_perturber'].fillna(False)
+
         print(f"Computed derived quantities for {len(result)} objects")
         print(f"  Above deuterium limit: {result['above_deuterium_limit'].sum()}")
         print(f"  High mass ratio (q >= {q_threshold}): {result['high_mass_ratio'].sum()}")
+
+        if 'has_outer_perturber' in result.columns:
+            n_with_perturbers = result['has_outer_perturber'].sum()
+            print(f"  With outer perturber detections: {n_with_perturbers}")
+            if n_with_perturbers > 0:
+                print(f"  Suitable for KL analysis: {result.get('suitable_for_kl_analysis', pd.Series(False)).sum()}")
 
         return result
 

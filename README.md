@@ -21,6 +21,9 @@ Close Saturn/Jupiter–mass companions around ultra–low-mass M dwarfs pose an 
 * Brown Dwarf Companion Catalogue (dataset landing):
   [https://ordo.open.ac.uk/articles/dataset/Brown_Dwarf_Companion_Catalogue/24156393](https://ordo.open.ac.uk/articles/dataset/Brown_Dwarf_Companion_Catalogue/24156393)
   Code/mirror: [https://github.com/adam-stevenson/brown-dwarf-desert](https://github.com/adam-stevenson/brown-dwarf-desert)
+* Gaia DR3 Non-Single Stars (NSS) for outer perturber cross-matches:
+  [https://www.cosmos.esa.int/web/gaia/dr3-non-single-stars](https://www.cosmos.esa.int/web/gaia/dr3-non-single-stars)
+  TAP access: [https://gea.esac.esa.int/tap-server/tap](https://gea.esac.esa.int/tap-server/tap)
 
 **Primary variables used:** host mass $M_\star$ (M☉), companion mass $M_c$ ($M_J$; true or $m\sin i$, flagged), semi-major axis $a$ (AU), eccentricity $e$, discovery method, [Fe/H] where available. We form $q = M_c/M_\star$ (with $1 M_\odot = 1047.56 M_J$) and restrict to **VLMS hosts** ($0.06 \le M_\star/M_\odot \le 0.20$).
 
@@ -44,7 +47,7 @@ The candidates that are counted and processed by the new interactive and percent
 Use a BLAS-backed scientific Python stack. Example with conda:
 
 ```
-conda create -n toi6894 python=3.11 numpy scipy pandas scikit-learn statsmodels numba matplotlib requests threadpoolctl -c conda-forge
+conda create -n toi6894 python=3.11 numpy scipy pandas scikit-learn statsmodels numba matplotlib requests threadpoolctl astropy -c conda-forge
 conda activate toi6894
 ```
 
@@ -66,7 +69,15 @@ numactl --interleave=all python panoptic_vlms_project.py --fetch --outdir result
 
 ## 4) End-to-end usage
 
-### 4.1) Interactive candidate counting and percentage selection
+### 4.1) Default comprehensive analysis
+
+By default, the analysis fetches data from all sources (NASA Exoplanet Archive, Brown Dwarf Catalogue, and Gaia DR3 NSS) and runs the complete analysis:
+
+```
+python panoptic_vlms_project.py --outdir results
+```
+
+### 4.2) Interactive candidate counting and percentage selection
 
 Report the number of candidates that meet requirements and interactively specify what percentage to process:
 
@@ -75,37 +86,36 @@ python panoptic_vlms_project.py --count-candidates --outdir results
 ```
 
 This mode will:
-1. Count candidates from both NASA Exoplanet Archive and Brown Dwarf Catalogue
+1. Count candidates from NASA Exoplanet Archive, Brown Dwarf Catalogue, and Gaia NSS
 2. Display the total number that meet the candidate requirements
 3. Wait for user input to specify what percentage (0-100) to process
 4. Allow the user to type 'exit' to quit without processing
 
-### 4.2) Non-interactive percentage processing
+### 4.3) Scope-limited analysis
 
-Process a specific percentage of candidates without interaction:
-
-```
-python panoptic_vlms_project.py --fetch --percent 50 --outdir results
-```
-
-Or with local files:
+Use scope-limiting flags to skip specific data sources:
 
 ```
-python panoptic_vlms_project.py --ps pscomppars_lowM.csv --bd BD_catalogue.csv --percent 25 --outdir results
+# Skip Gaia outer perturber analysis
+python panoptic_vlms_project.py --skip-gaia --outdir results
+
+# Use only NASA data
+python panoptic_vlms_project.py --skip-bd --skip-gaia --outdir results
+
+# Process specific percentage of all data
+python panoptic_vlms_project.py --percent 50 --outdir results
 ```
 
-### 4.3) Standard usage modes
+### 4.4) Local file analysis
 
-Fetch fresh catalogs and run full analysis:
-
-```
-python panoptic_vlms_project.py --fetch --outdir results
-```
-
-Run on local CSVs you already have:
+Use local CSV files instead of fetching online:
 
 ```
-python panoptic_vlms_project.py --ps pscomppars_lowM.csv --bd BD_catalogue.csv --outdir results
+# Use all local files
+python panoptic_vlms_project.py --ps pscomppars_lowM.csv --bd BD_catalogue.csv --gaia gaia_nss_vlms.csv --outdir results
+
+# Mix local and online sources
+python panoptic_vlms_project.py --ps pscomppars_lowM.csv --skip-bd --outdir results
 ```
 
 Customize the plotted marker for TOI-6894b (host mass, companion mass, and "final" a for figure annotations):
@@ -135,7 +145,8 @@ The stacked VLMS dataset (`vlms_companions_stacked.csv`) contains at minimum:
 * **Derived quantities:** `log_mass_ratio`, `log_semimajor_axis`, `log_host_mass`, `above_deuterium_limit`, `high_mass_ratio`,
 * **Age analysis features:** `age_group` ∈ {Young, Intermediate, Old, Unknown}, `log_host_age_gyr`, `tidal_timescale_proxy`, `migration_efficiency`, `potential_migrator`,
 * **TOI comparison:** `age_delta_vs_toi_gyr`, `is_younger_than_toi` (when TOI age provided),
-* `data_source ∈ {NASA, BD_Catalogue, TOI}`.
+* **Outer perturber properties:** `has_outer_perturber`, `outer_perturber_mass_msun`, `outer_perturber_distance_pc`, `perturber_host_mass_ratio`, `suitable_for_kl_analysis`,
+* `data_source ∈ {NASA, BD_Catalogue, Gaia_NSS, TOI}`.
 
 We also write object-level probabilities `P_binary_like` after classification (§6.4).
 
@@ -165,7 +176,7 @@ Deliverables: `beta_e_params.csv` (parameters), `ks_test_e.txt` (KS statistic, p
 
 Every run now also performs a **bootstrap bagging** pass (default 500 resamples, 80% sampling fraction) on the eccentricity split. This reports the stability of the fitted Beta parameters and the KS/Mann–Whitney statistics: `beta_e_bootstrap_summary.json` captures aggregate moments and detection rates, while `beta_e_bootstrap_distributions.csv` stores the individual bootstrap draws for custom diagnostics.
 
-### 6.3 Migration feasibility (KL + tides; plus a disk-torque sanity band)
+### 6.3 Migration feasibility (KL + tides; synthetic grid + real perturber analysis)
 
 * **Kozai–Lidov timescale** (quadrupole, order-of-magnitude):
 
@@ -173,7 +184,9 @@ $$
 t_{\rm KL} \sim \frac{M_\star + M_c}{M_{\rm out}} \frac{P_{\rm out}^2}{P_{\rm in}} \left(1-e_{\rm out}^2\right)^{3/2}.
 $$
 
-We explore a grid over $(M_{\rm out}, a_{\rm out})$ and randomize $e_{\rm out}$ (and a proxy for inclination) to estimate the **fraction of draws** that (i) satisfy $t_{\rm KL} \le T$ and (ii) achieve periapsis $r_p$ below a critical threshold.
+We explore a synthetic grid over $(M_{\rm out}, a_{\rm out})$ and randomize $e_{\rm out}$ (and a proxy for inclination) to estimate the **fraction of draws** that (i) satisfy $t_{\rm KL} \le T$ and (ii) achieve periapsis $r_p$ below a critical threshold.
+
+* **Real perturber analysis:** For systems with Gaia DR3 NSS outer perturber detections, we test migration feasibility using the **actual detected perturber parameters** rather than synthetic grids, providing direct observational constraints on the KL+tides pathway.
 
 * **Tidal shrink (intuition):**
 
@@ -183,7 +196,7 @@ $$
 
 At $a \approx 0.05$ AU and $Q'_\star \sim 10^{6\text{–}7}$, stellar tides alone are **too slow** unless high-$e$ phases produce very small periastron; hence the dual emphasis on **KL-assisted** or **early disk** migration.
 
-Deliverable: `fig3_feasibility.png` (heat-map of feasibility fraction) + `feasibility_map.npz`. The script uses a conservative periastron criterion (default $r_{\rm crit} \sim 5R_\star$) and a 1 Gyr horizon, both user-tunable in code.
+Deliverables: `fig3_feasibility.png` (heat-map of feasibility fraction) + `feasibility_map.npz` (synthetic grid), `real_perturber_analysis.json` (analysis of systems with detected outer perturbers), `feasibility_comparison.json` (synthetic vs real comparison). The script uses a conservative periastron criterion (default $r_{\rm crit} \sim 5R_\star$) and a 1 Gyr horizon, both user-tunable in code.
 
 **Disk torques:** We also report order-of-magnitude Type-I–like timescale bands in the paper text using:
 
@@ -283,9 +296,9 @@ Typical end-to-end run (few hundred systems) is CPU-bound and fast:
 ## 11) How to extend
 
 * Replace the heuristic training labels with a curated anchor set (wide imaged BDs vs disk-formed sub-Neptunes).
-* Add Gaia DR3 NSS outer-perturber cross-matches for systems with astrometric companions:
-  [https://www.cosmos.esa.int/web/gaia/dr3-non-single-stars](https://www.cosmos.esa.int/web/gaia/dr3-non-single-stars)
+* Enhance the outer perturber orbital solutions by using full Gaia astrometric fitting rather than rough separation estimates.
 * Promote the KL+tide toy criterion to a proper secular code with tidal evolution (e.g., add a lightweight integration for a subset and compare feasibility fractions).
+* Add proper astrometric orbit fitting for detected NSS systems to derive accurate outer perturber orbital elements.
 
 ## 12) Citation and code availability
 
