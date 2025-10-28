@@ -6,6 +6,7 @@ import time
 import io
 from astropy.coordinates import SkyCoord
 from astropy import units as u
+from astrometric_orbits import GaiaNSSOrbitFitter
 
 class NASAExoplanetArchiveFetcher:
     """Fetch data from NASA Exoplanet Archive TAP service"""
@@ -217,6 +218,7 @@ class GaiaDR3NSSFetcher:
 
     def __init__(self, base_url: str = "https://gea.esac.esa.int/tap-server/tap/sync"):
         self.base_url = base_url
+        self.orbit_fitter = GaiaNSSOrbitFitter(base_url)
 
     def fetch_nss_companions(self, ra_min: float = None, ra_max: float = None,
                             dec_min: float = None, dec_max: float = None,
@@ -326,10 +328,70 @@ class GaiaDR3NSSFetcher:
         print(f"Postprocessed to {len(processed)} Gaia NSS entries after cleaning")
         return processed
 
+    def fetch_enhanced_nss_orbits(self, source_ids: list = None,
+                                 ra_min: float = None, ra_max: float = None,
+                                 dec_min: float = None, dec_max: float = None,
+                                 primary_masses: pd.Series = None) -> pd.DataFrame:
+        """
+        Fetch enhanced NSS orbital solutions with proper astrometric fitting
+
+        Parameters:
+        -----------
+        source_ids : list, optional
+            List of Gaia source_ids to query
+        ra_min, ra_max : float, optional
+            RA bounds in degrees
+        dec_min, dec_max : float, optional
+            Dec bounds in degrees
+        primary_masses : pd.Series, optional
+            Primary star masses indexed by source_id
+
+        Returns:
+        --------
+        pd.DataFrame with detailed orbital parameters and uncertainties
+        """
+
+        print("Fetching enhanced NSS orbital solutions with astrometric fitting...")
+
+        try:
+            # Fetch raw orbital data from nss_two_body_orbit table
+            nss_orbital_data = self.orbit_fitter.fetch_nss_orbital_solutions(
+                source_ids=source_ids,
+                ra_min=ra_min, ra_max=ra_max,
+                dec_min=dec_min, dec_max=dec_max
+            )
+
+            if nss_orbital_data.empty:
+                print("No NSS orbital solutions found")
+                return pd.DataFrame()
+
+            # Process with proper orbital parameter conversion
+            enhanced_orbits = self.orbit_fitter.process_nss_orbital_catalog(
+                nss_orbital_data, primary_masses
+            )
+
+            print(f"Enhanced orbital fitting completed for {len(enhanced_orbits)} systems")
+
+            return enhanced_orbits
+
+        except Exception as e:
+            print(f"Error in enhanced NSS orbit fetching: {e}")
+            print(f"Exception type: {type(e).__name__}")
+            print(f"Exception details: {str(e)}")
+            if hasattr(e, '__traceback__'):
+                import traceback
+                print(f"Traceback: {traceback.format_exc()}")
+            print("Falling back to basic NSS data")
+            return pd.DataFrame()
+
     def save_data(self, df: pd.DataFrame, filename: str):
         """Save Gaia NSS data to CSV"""
         df.to_csv(filename, index=False)
         print(f"Saved Gaia NSS data to {filename}")
+
+    def save_enhanced_orbits(self, df: pd.DataFrame, filename: str):
+        """Save enhanced orbital solutions to CSV"""
+        self.orbit_fitter.save_enhanced_orbits(df, filename)
 
 
 def cross_match_coordinates(df1: pd.DataFrame, df2: pd.DataFrame,

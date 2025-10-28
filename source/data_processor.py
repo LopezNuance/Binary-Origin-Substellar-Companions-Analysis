@@ -211,7 +211,7 @@ class VLMSDataProcessor:
         return processed
 
     def cross_match_with_gaia(self, primary_df: pd.DataFrame, gaia_df: pd.DataFrame,
-                             max_sep_arcsec: float = 5.0) -> pd.DataFrame:
+                             max_sep_arcsec: float = 5.0, enhanced_orbits_df: pd.DataFrame = None) -> pd.DataFrame:
         """
         Cross-match primary catalog (NASA/BD) with Gaia NSS data
 
@@ -223,6 +223,8 @@ class VLMSDataProcessor:
             Processed Gaia NSS data
         max_sep_arcsec : float
             Maximum separation for cross-match in arcseconds
+        enhanced_orbits_df : pd.DataFrame, optional
+            Enhanced orbital solutions with proper astrometric fitting
 
         Returns:
         --------
@@ -262,8 +264,49 @@ class VLMSDataProcessor:
             if old_col in matched_df.columns:
                 matched_df[new_col] = matched_df[old_col]
 
+        # Enhance with detailed orbital solutions if available
+        if enhanced_orbits_df is not None and not enhanced_orbits_df.empty:
+            print("Integrating enhanced orbital solutions...")
+
+            # Match by Gaia source_id
+            enhanced_orbital_cols = {
+                'sma_au_fitted': 'outer_perturber_sma_au_fitted',
+                'inclination_deg_fitted': 'outer_perturber_inclination_deg',
+                'omega_deg_fitted': 'outer_perturber_omega_deg',
+                'Omega_deg_fitted': 'outer_perturber_Omega_deg',
+                'eccentricity': 'outer_perturber_eccentricity_fitted',
+                'period_days': 'outer_perturber_period_days',
+                'companion_mass_msun_fitted': 'outer_perturber_mass_msun_fitted',
+                'goodness_of_fit': 'outer_perturber_fit_quality',
+                'fit_quality': 'outer_perturber_fit_grade'
+            }
+
+            # Merge enhanced orbital data
+            gaia_ids = matched_df['outer_perturber_gaia_id'].dropna()
+            if len(gaia_ids) > 0:
+                enhanced_subset = enhanced_orbits_df[
+                    enhanced_orbits_df['source_id'].isin(gaia_ids)
+                ].set_index('source_id')
+
+                for idx, row in matched_df.iterrows():
+                    gaia_id = row.get('outer_perturber_gaia_id', None)
+                    if pd.notna(gaia_id) and gaia_id in enhanced_subset.index:
+                        enhanced_row = enhanced_subset.loc[gaia_id]
+
+                        # Add enhanced orbital parameters
+                        for orig_col, new_col in enhanced_orbital_cols.items():
+                            if orig_col in enhanced_row.index:
+                                matched_df.at[idx, new_col] = enhanced_row[orig_col]
+
+                        # Use fitted mass if available and more accurate
+                        if not pd.isna(enhanced_row.get('companion_mass_msun_fitted')):
+                            matched_df.at[idx, 'outer_perturber_mass_msun'] = enhanced_row['companion_mass_msun_fitted']
+
+                print(f"Enhanced orbital solutions integrated for matched systems")
+
         # Flag systems with detected outer perturbers
         matched_df['has_outer_perturber'] = True
+        matched_df['has_enhanced_orbit'] = enhanced_orbits_df is not None and not enhanced_orbits_df.empty
 
         # Create final dataset combining matched and unmatched systems
         unmatched_mask = ~primary_df.index.isin(matched_df.index)
@@ -332,7 +375,9 @@ class VLMSDataProcessor:
         # Cross-match with Gaia NSS if available
         if gaia_df is not None and not gaia_df.empty:
             print("Cross-matching with Gaia NSS data...")
-            combined = self.cross_match_with_gaia(combined, gaia_df)
+            # Check if enhanced orbits are available in the instance
+            enhanced_orbits_df = getattr(self, 'enhanced_orbits_df', None)
+            combined = self.cross_match_with_gaia(combined, gaia_df, enhanced_orbits_df=enhanced_orbits_df)
 
         # Move the core analysis columns to the front for readability
         primary_cols = required_cols + [col for col in combined.columns if col not in required_cols]
@@ -405,14 +450,32 @@ class VLMSDataProcessor:
                 result['outer_perturber_mass_msun'] / result['host_mass_msun']
             )
 
-            # Estimate outer perturber semi-major axis from distance and projected separation
-            # This is rough - real orbital analysis would need proper astrometry
-            if 'outer_perturber_distance_pc' in result.columns:
-                # Assume median projected separation of ~1000 AU for wide binaries
-                result['estimated_outer_sma_au'] = 1000.0  # Placeholder - needs proper astrometric solution
+            # Use fitted semimajor axis if available, otherwise estimate
+            if 'outer_perturber_sma_au_fitted' in result.columns:
+                # Use properly fitted orbital solutions
+                result['estimated_outer_sma_au'] = result['outer_perturber_sma_au_fitted']
+                result['has_fitted_orbit'] = ~result['outer_perturber_sma_au_fitted'].isna()
 
-            # Flag systems suitable for KL analysis (have detected outer perturber)
-            result['suitable_for_kl_analysis'] = result['has_outer_perturber'].fillna(False)
+                print(f"Using fitted orbital solutions for {result['has_fitted_orbit'].sum()} systems")
+            else:
+                # Fallback to rough distance estimate
+                if 'outer_perturber_distance_pc' in result.columns:
+                    # Assume median projected separation of ~1000 AU for wide binaries
+                    result['estimated_outer_sma_au'] = 1000.0  # Placeholder
+                    result['has_fitted_orbit'] = False
+
+            # Enhanced KL analysis suitability
+            result['suitable_for_kl_analysis'] = (
+                result['has_outer_perturber'].fillna(False) &
+                ~result['estimated_outer_sma_au'].isna() &
+                ~result['perturber_host_mass_ratio'].isna()
+            )
+
+            # Flag high-quality orbital solutions
+            if 'outer_perturber_fit_grade' in result.columns:
+                result['high_quality_orbit'] = (result['outer_perturber_fit_grade'] == 'high')
+            else:
+                result['high_quality_orbit'] = False
 
         print(f"Computed derived quantities for {len(result)} objects")
         print(f"  Above deuterium limit: {result['above_deuterium_limit'].sum()}")

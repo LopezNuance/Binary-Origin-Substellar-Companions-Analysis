@@ -153,12 +153,41 @@ def fetch_data(args):
 
     # Gaia DR3 NSS (new!)
     gaia_data = pd.DataFrame()
+    enhanced_orbits = pd.DataFrame()
     if not getattr(args, 'skip_gaia', False):
         try:
             gaia_fetcher = GaiaDR3NSSFetcher()
+
+            # Fetch basic NSS data first
             gaia_data = gaia_fetcher.fetch_nss_companions(parallax_min=0.1)
             gaia_file = os.path.join(args.outdir, "gaia_nss_vlms.csv")
             gaia_fetcher.save_data(gaia_data, gaia_file)
+
+            # Attempt to fetch enhanced orbital solutions
+            if not gaia_data.empty:
+                try:
+                    logger.info("Fetching enhanced orbital solutions with proper astrometric fitting...")
+
+                    # Extract primary masses from NASA/BD data for companion mass estimation
+                    primary_masses = None
+                    if 'host_mass_msun' in nasa_data.columns:
+                        primary_masses = nasa_data.set_index('gaia_source_id', errors='ignore')['host_mass_msun']
+
+                    enhanced_orbits = gaia_fetcher.fetch_enhanced_nss_orbits(
+                        primary_masses=primary_masses
+                    )
+
+                    if not enhanced_orbits.empty:
+                        enhanced_file = os.path.join(args.outdir, "gaia_nss_enhanced_orbits.csv")
+                        gaia_fetcher.save_enhanced_orbits(enhanced_orbits, enhanced_file)
+                        logger.info(f"Enhanced orbital solutions available for {len(enhanced_orbits)} systems")
+                    else:
+                        logger.info("No enhanced orbital solutions available")
+
+                except Exception as orbit_e:
+                    logger.warning(f"Enhanced orbital fitting failed: {orbit_e}")
+                    logger.info("Proceeding with basic NSS data")
+
         except Exception as e:
             logger.error(f"Error fetching Gaia NSS data: {e}")
             logger.error(f"Exception type: {type(e).__name__}")
@@ -168,32 +197,35 @@ def fetch_data(args):
                 logger.error(f"Traceback: {traceback.format_exc()}")
             logger.warning("Continuing analysis without Gaia outer perturber data")
 
-    return nasa_data, bd_filtered, gaia_data
+    return nasa_data, bd_filtered, gaia_data, enhanced_orbits
 
-def sample_data(nasa_data, bd_data, gaia_data, percentage: float):
+def sample_data(nasa_data, bd_data, gaia_data, enhanced_orbits, percentage: float):
     """Sample a percentage of the combined dataset"""
     if percentage >= 100:
-        return nasa_data, bd_data, gaia_data
+        return nasa_data, bd_data, gaia_data, enhanced_orbits
 
     # Calculate sample sizes
     nasa_sample_size = int(len(nasa_data) * percentage / 100) if len(nasa_data) > 0 else 0
     bd_sample_size = int(len(bd_data) * percentage / 100) if len(bd_data) > 0 else 0
     gaia_sample_size = int(len(gaia_data) * percentage / 100) if len(gaia_data) > 0 else 0
+    enhanced_sample_size = int(len(enhanced_orbits) * percentage / 100) if len(enhanced_orbits) > 0 else 0
 
     # Sample the data
     nasa_sampled = nasa_data.sample(n=nasa_sample_size, random_state=42) if nasa_sample_size > 0 else nasa_data
     bd_sampled = bd_data.sample(n=bd_sample_size, random_state=42) if bd_sample_size > 0 else bd_data
     gaia_sampled = gaia_data.sample(n=gaia_sample_size, random_state=42) if gaia_sample_size > 0 else gaia_data
+    enhanced_sampled = enhanced_orbits.sample(n=enhanced_sample_size, random_state=42) if enhanced_sample_size > 0 else enhanced_orbits
 
     print(f"Sampled {len(nasa_sampled)} NASA entries ({nasa_sample_size}/{len(nasa_data)})")
     print(f"Sampled {len(bd_sampled)} BD entries ({bd_sample_size}/{len(bd_data)})")
     print(f"Sampled {len(gaia_sampled)} Gaia NSS entries ({gaia_sample_size}/{len(gaia_data)})")
+    print(f"Sampled {len(enhanced_sampled)} enhanced orbit entries ({enhanced_sample_size}/{len(enhanced_orbits)})")
     print(f"Total sampled: {len(nasa_sampled) + len(bd_sampled) + len(gaia_sampled)} ({percentage}% of original)")
 
-    return nasa_sampled, bd_sampled, gaia_sampled
+    return nasa_sampled, bd_sampled, gaia_sampled, enhanced_sampled
 
-def process_data(nasa_data, bd_data, gaia_data, args):
-    """Process and combine all datasets including Gaia NSS"""
+def process_data(nasa_data, bd_data, gaia_data, enhanced_orbits, args):
+    """Process and combine all datasets including Gaia NSS and enhanced orbits"""
     logger.info("\n" + "=" * 60)
     logger.info("PROCESSING AND COMBINING DATASETS")
     logger.info("=" * 60)
@@ -204,6 +236,11 @@ def process_data(nasa_data, bd_data, gaia_data, args):
     nasa_processed = processor.process_nasa_data(nasa_data)
     bd_processed = processor.process_bd_data(bd_data)
     gaia_processed = processor.process_gaia_nss_data(gaia_data) if not gaia_data.empty else pd.DataFrame()
+
+    # Store enhanced orbits in processor for cross-matching
+    if not enhanced_orbits.empty:
+        processor.enhanced_orbits_df = enhanced_orbits
+        logger.info(f"Enhanced orbital solutions available: {len(enhanced_orbits)} systems")
 
     # Combine datasets (Gaia cross-matching happens inside combine_datasets)
     combined = processor.combine_datasets(nasa_processed, bd_processed, gaia_processed)
@@ -740,6 +777,7 @@ Examples:
         nasa_data = pd.DataFrame()
         bd_data = pd.DataFrame()
         gaia_data = pd.DataFrame()
+        enhanced_orbits = pd.DataFrame()
 
         # Handle count-candidates mode (interactive)
         if args.count_candidates:
@@ -766,16 +804,16 @@ Examples:
                     print("Please enter a valid number or 'exit'.")
 
             # Fetch and process data with specified percentage
-            nasa_data, bd_data, gaia_data = fetch_data(args)
-            nasa_data, bd_data, gaia_data = sample_data(nasa_data, bd_data, gaia_data, percentage)
+            nasa_data, bd_data, gaia_data, enhanced_orbits = fetch_data(args)
+            nasa_data, bd_data, gaia_data, enhanced_orbits = sample_data(nasa_data, bd_data, gaia_data, enhanced_orbits, percentage)
 
         # Data acquisition
         elif args.fetch_mode:
             # Default mode: fetch from online sources
-            nasa_data, bd_data, gaia_data = fetch_data(args)
+            nasa_data, bd_data, gaia_data, enhanced_orbits = fetch_data(args)
             # Apply percentage sampling if specified
             if args.percent is not None:
-                nasa_data, bd_data, gaia_data = sample_data(nasa_data, bd_data, gaia_data, args.percent)
+                nasa_data, bd_data, gaia_data, enhanced_orbits = sample_data(nasa_data, bd_data, gaia_data, enhanced_orbits, args.percent)
         else:
             # Local file mode
             logger.info("Loading local data files...")
@@ -795,6 +833,15 @@ Examples:
                 try:
                     gaia_data = pd.read_csv(args.gaia)
                     logger.info(f"Loaded {len(gaia_data)} entries from local Gaia file: {args.gaia}")
+
+                    # Try to load enhanced orbits file if it exists
+                    enhanced_orbits_file = args.gaia.replace('.csv', '_enhanced_orbits.csv')
+                    try:
+                        enhanced_orbits = pd.read_csv(enhanced_orbits_file)
+                        logger.info(f"Loaded {len(enhanced_orbits)} enhanced orbital solutions")
+                    except FileNotFoundError:
+                        logger.info("No enhanced orbital solutions file found")
+
                 except Exception as e:
                     logger.error(f"Error loading Gaia file {args.gaia}: {e}")
                     logger.error(f"Exception type: {type(e).__name__}")
@@ -806,13 +853,13 @@ Examples:
 
             # Apply percentage sampling if specified
             if args.percent is not None:
-                nasa_data, bd_data, gaia_data = sample_data(nasa_data, bd_data, gaia_data, args.percent)
+                nasa_data, bd_data, gaia_data, enhanced_orbits = sample_data(nasa_data, bd_data, gaia_data, enhanced_orbits, args.percent)
 
             if nasa_data.empty and bd_data.empty:
                 logger.warning("No NASA or BD data loaded - analysis will be limited")
 
         # Data processing
-        final_data = process_data(nasa_data, bd_data, gaia_data, args)
+        final_data = process_data(nasa_data, bd_data, gaia_data, enhanced_orbits, args)
 
         # Visualizations
         fig1_path, fig2_path = create_visualizations(final_data, args)
